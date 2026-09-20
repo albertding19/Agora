@@ -12,7 +12,7 @@
  * flips the phase last with `where phase = <from>` so concurrent callers are
  * safe and a crash mid-transition is retried by the next poll.
  */
-import { PHASES, type Mode, type Phase, type Timers } from '@/lib/types'
+import { PHASES, type Mode, type Phase, type PhaseLogEntry, type Timers } from '@/lib/types'
 import { pricePct } from '@/lib/market/lmsr'
 import { calibrationOrNull } from '@/lib/scoring/calibration'
 import { persuasionScores } from '@/lib/scoring/persuasion'
@@ -23,6 +23,20 @@ export const ADVANCE_GRACE_MS = 2000
 export function nextPhase(phase: Phase): Phase | null {
   const i = PHASES.indexOf(phase)
   return i >= 0 && i < PHASES.length - 1 ? PHASES[i + 1] : null
+}
+
+/**
+ * A free-text question (mode 'open', plan §17.3): no number, no price, no
+ * debate. Not the `open` *phase*. Use this everywhere instead of comparing
+ * the string so every site is greppable.
+ */
+export function isOpenQuestion(q: { mode: Mode }): boolean {
+  return q.mode === 'open'
+}
+
+/** When a question first entered `phase` according to its phase log, or null if it never did. */
+export function phaseLogAt(log: readonly PhaseLogEntry[], phase: Phase): string | null {
+  return log.find((entry) => entry.phase === phase)?.at ?? null
 }
 
 export function isTimed(phase: Phase): boolean {

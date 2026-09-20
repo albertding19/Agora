@@ -11,6 +11,7 @@ import { Leaderboard } from '@/components/teacher/Leaderboard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { createApi } from '@/lib/api'
 import { useSessionView } from '@/lib/realtime/useSessionView'
 import { setTeacherToken, useHydrated, useTeacherToken } from '@/lib/storage'
@@ -342,8 +343,8 @@ function QuestionList({ view, busy, run, api }: { view: TeacherView; busy: strin
             })
           }}
         >
-          <textarea
-            className="min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          <Textarea
+            className="min-h-16 text-sm"
             placeholder="A contestable proposition, e.g. “The ball costs 10 cents.”"
             value={proposition}
             maxLength={300}

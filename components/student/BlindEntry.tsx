@@ -4,6 +4,7 @@ import { BeliefSlider } from '@/components/student/BeliefSlider'
 import { Countdown } from '@/components/shared/Countdown'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Textarea } from '@/components/ui/textarea'
 import type { Api } from '@/lib/api'
 import { REASONING_MAX_CHARS, type Band, type StudentView } from '@/lib/types'
 
@@ -78,9 +79,9 @@ export function BlindEntry({
           <label className="text-sm text-muted-foreground" htmlFor="reasoning">
             Why do you think so? (optional, 1–2 sentences)
           </label>
-          <textarea
+          <Textarea
             id="reasoning"
-            className="min-h-20 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="min-h-20"
             maxLength={REASONING_MAX_CHARS}
             value={reasoning}
             onChange={(e) => setReasoning(e.target.value)}

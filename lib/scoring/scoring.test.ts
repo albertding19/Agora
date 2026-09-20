@@ -3,7 +3,7 @@ import { calibration, calibrationOrNull } from './calibration'
 import { persuasionScores } from './persuasion'
 import { rankLeaderboard } from './leaderboard'
 import { histogram10 } from './histogram'
-import { beliefMapReading } from './reading'
+import { beliefMapReading, openQuestionReading } from './reading'
 
 describe('calibration', () => {
   it('is 100 for a perfect number and 0 for a perfectly wrong one', () => {
@@ -118,6 +118,26 @@ describe('leaderboard', () => {
     ])
     expect(ranked.map((r) => r.name)).toEqual(['cat', 'bob', 'amy', 'zed'])
   })
+
+  it('adds contrarian credit to the rank key but not to the calibration column', () => {
+    const ranked = rankLeaderboard([
+      { name: 'cat', calibration: 95, persuasion: null, contrarian: null },
+      { name: 'amy', calibration: 90, persuasion: null, contrarian: 8 },
+      { name: 'nil', calibration: null, persuasion: null, contrarian: 8 },
+    ])
+    expect(ranked.map((r) => r.name)).toEqual(['amy', 'cat', 'nil'])
+    expect(ranked[0].calibration).toBe(90)
+  })
+
+  it('breaks calibration and persuasion ties by steelman, nulls last', () => {
+    const ranked = rankLeaderboard([
+      { name: 'dan', calibration: 90, persuasion: 10, steelman: null },
+      { name: 'eve', calibration: 90, persuasion: 10, steelman: 60 },
+      { name: 'fay', calibration: 90, persuasion: 10, steelman: 85 },
+      { name: 'gus', calibration: 90, persuasion: 10 },
+    ])
+    expect(ranked.map((r) => r.name)).toEqual(['fay', 'eve', 'dan', 'gus'])
+  })
 })
 
 describe('histogram', () => {
@@ -146,5 +166,19 @@ describe('belief map reading', () => {
   it('never resolves humanities', () => {
     expect(beliefMapReading(85, null, null, 'humanities')).toBe('Strong consensus. Check for groupthink.')
     expect(beliefMapReading(null, null, null, 'humanities')).toBeNull()
+  })
+  it('has nothing to say about an open question', () => {
+    expect(beliefMapReading(85, 60, false, 'open')).toBeNull()
+  })
+})
+
+describe('open question reading', () => {
+  it('asks for clustering until clusters exist', () => {
+    expect(openQuestionReading(null)).toBe('Open question. Cluster the answers.')
+    expect(openQuestionReading(0)).toBe('Open question. Cluster the answers.')
+  })
+  it('counts the clusters', () => {
+    expect(openQuestionReading(3)).toBe('3 answer clusters. Sharpen one into a proposition.')
+    expect(openQuestionReading(1)).toBe('1 answer cluster. Sharpen one into a proposition.')
   })
 })

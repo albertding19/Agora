@@ -9,12 +9,14 @@ import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js'
 import { HttpError } from '@/lib/http'
 import { DEFAULT_K } from '@/lib/market/lmsr'
 import type { DebateGroup } from '@/lib/pairing/pair'
-import type { Phase } from '@/lib/types'
+import { PHASES, type Mode, type Phase } from '@/lib/types'
 import {
   num,
+  type ArgumentVoteRow,
   type ClusterRow,
   type GroupRow,
   type ParticipantRow,
+  type PhaseLogEntry,
   type QuestionRow,
   type SessionRow,
   type SessionTickRow,
@@ -36,8 +38,15 @@ function dbError(error: PostgrestError, what: string): HttpError {
 // Row mappers (numeric → number)
 // ---------------------------------------------------------------------------
 
+/** Only well-formed entries reach the view (the client parses `phaseLog` strictly). */
+function isPhaseLogEntry(e: unknown): e is PhaseLogEntry {
+  if (typeof e !== 'object' || e === null) return false
+  const { phase, at } = e as { phase?: unknown; at?: unknown }
+  return typeof at === 'string' && typeof phase === 'string' && (PHASES as readonly string[]).includes(phase)
+}
+
 export function mapSession(r: Raw): SessionRow {
-  return { ...(r as unknown as SessionRow), k: num(r.k as Numeric) ?? DEFAULT_K }
+  return { ...(r as unknown as SessionRow), k: num(r.k as Numeric) ?? DEFAULT_K, features: r.features ?? {} }
 }
 
 export function mapQuestion(r: Raw): QuestionRow {
@@ -46,6 +55,13 @@ export function mapQuestion(r: Raw): QuestionRow {
     liquidity_b: num(r.liquidity_b as Numeric),
     blind_price_pct: num(r.blind_price_pct as Numeric),
     post_price_pct: num(r.post_price_pct as Numeric),
+    reference_answer: (r.reference_answer as string | null | undefined) ?? null,
+    source_question_id: (r.source_question_id as string | null | undefined) ?? null,
+    cascade_mode: r.cascade_mode === true,
+    phase_log: Array.isArray(r.phase_log) ? r.phase_log.filter(isPhaseLogEntry) : [],
+    sp_actual_true_pct: num(r.sp_actual_true_pct as Numeric),
+    sp_predicted_true_pct: num(r.sp_predicted_true_pct as Numeric),
+    sp_answer: (r.sp_answer as boolean | null | undefined) ?? null,
   }
 }
 
@@ -55,6 +71,7 @@ export function mapSubmission(r: Raw): SubmissionRow {
     calibration_final: num(r.calibration_final as Numeric),
     calibration_blind: num(r.calibration_blind as Numeric),
     persuasion: num(r.persuasion as Numeric),
+    steelman_score: num(r.steelman_score as Numeric),
   }
 }
 
@@ -67,8 +84,12 @@ export function mapTrade(r: Raw): TradeRow {
 }
 
 const mapParticipant = (r: Raw): ParticipantRow => r as unknown as ParticipantRow
-const mapGroup = (r: Raw): GroupRow => r as unknown as GroupRow
+const mapGroup = (r: Raw): GroupRow => ({
+  ...(r as unknown as GroupRow),
+  socratic_questions: (r.socratic_questions as string[] | null | undefined) ?? null,
+})
 const mapCluster = (r: Raw): ClusterRow => r as unknown as ClusterRow
+const mapArgumentVote = (r: Raw): ArgumentVoteRow => r as unknown as ArgumentVoteRow
 
 // ---------------------------------------------------------------------------
 // sessions
@@ -83,6 +104,8 @@ export interface NewSession {
   blind_seconds: number
   turn_seconds: number
   open_seconds: number
+  /** Feature flags (plan §17); pass the full parsed object. */
+  features: object
 }
 
 /** Returns null on a code collision (unique violation) so the caller can retry. */
@@ -178,8 +201,11 @@ export async function listParticipants(client: SupabaseClient, sessionId: string
 
 export interface NewQuestion {
   proposition: string
-  mode: 'stem' | 'humanities'
+  mode: Mode
   correct_answer: boolean | null
+  reference_answer: string | null
+  source_question_id: string | null
+  cascade_mode: boolean
 }
 
 export async function insertQuestions(
@@ -292,6 +318,15 @@ export type SubmissionPatch = Partial<
     | 'calibration_final'
     | 'calibration_blind'
     | 'persuasion'
+    | 'first_pct'
+    | 'opposite_pct'
+    | 'opposite_reasoning'
+    | 'predicted_true_pct'
+    | 'sp_insight'
+    | 'steelman_text'
+    | 'steelman_score'
+    | 'steelman_note'
+    | 'contrarian_bonus'
   >
 >
 
@@ -414,6 +449,16 @@ export async function upsertGroups(
   return saved
 }
 
+/** Socrates agent (plan §17.4): store one question per speaker for a group. Re-running overwrites. */
+export async function setGroupSocraticQuestions(
+  client: SupabaseClient,
+  groupId: string,
+  questions: string[],
+): Promise<void> {
+  const { error } = await client.from('groups').update({ socratic_questions: questions }).eq('id', groupId)
+  if (error) throw dbError(error, 'set group socratic questions')
+}
+
 // ---------------------------------------------------------------------------
 // clusters
 // ---------------------------------------------------------------------------
@@ -440,4 +485,42 @@ export async function replaceClusters(
   const { data, error } = await client.from('clusters').insert(rows).select().order('idx')
   if (error) throw dbError(error, 'insert clusters')
   return ((data ?? []) as Raw[]).map(mapCluster)
+}
+
+export async function listClustersForQuestions(client: SupabaseClient, questionIds: string[]): Promise<ClusterRow[]> {
+  if (questionIds.length === 0) return []
+  const { data, error } = await client.from('clusters').select('*').in('question_id', questionIds).order('idx')
+  if (error) throw dbError(error, 'list clusters for questions')
+  return ((data ?? []) as Raw[]).map(mapCluster)
+}
+
+// ---------------------------------------------------------------------------
+// argument votes (plan §17.9b)
+// ---------------------------------------------------------------------------
+
+export interface NewArgumentVote {
+  question_id: string
+  voter_id: string
+  winner_submission_id: string
+  loser_submission_id: string
+}
+
+/** Returns false when this voter already compared the pair (unique violation), like insertSession. */
+export async function insertArgumentVote(client: SupabaseClient, row: NewArgumentVote): Promise<boolean> {
+  const { error } = await client.from('argument_votes').insert(row)
+  if (error) {
+    if (error.code === UNIQUE_VIOLATION) return false
+    throw dbError(error, 'insert argument vote')
+  }
+  return true
+}
+
+export async function listArgumentVotes(client: SupabaseClient, questionId: string): Promise<ArgumentVoteRow[]> {
+  const { data, error } = await client
+    .from('argument_votes')
+    .select('*')
+    .eq('question_id', questionId)
+    .order('created_at', { ascending: true })
+  if (error) throw dbError(error, 'list argument votes')
+  return ((data ?? []) as Raw[]).map(mapArgumentVote)
 }

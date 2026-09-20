@@ -26,7 +26,15 @@ export function BeliefMap({ rows }: { rows: TeacherQuestionRow[] }) {
               <td className="py-1 pr-2 tabular-nums">{fmtPct(r.blindPricePct)}</td>
               <td className="py-1 pr-2 tabular-nums">{fmtPct(r.postPricePct)}</td>
               <td className="py-1 pr-2">
-                {r.mode === 'humanities' ? 'open' : r.correctAnswer === null ? '—' : r.correctAnswer ? 'TRUE' : 'FALSE'}
+                {r.mode === 'open'
+                  ? 'free text'
+                  : r.mode === 'humanities'
+                    ? 'no answer'
+                    : r.correctAnswer === null
+                      ? '—'
+                      : r.correctAnswer
+                        ? 'TRUE'
+                        : 'FALSE'}
               </td>
               <td className="py-1 pr-2 tabular-nums">
                 {r.movementPct === null ? '—' : `${r.movementPct > 0 ? '+' : ''}${r.movementPct.toFixed(0)}`}

@@ -19,6 +19,8 @@ export function beliefMapReading(
   outcome: boolean | null,
   mode: Mode,
 ): string | null {
+  // An open question has no number and no price; see openQuestionReading().
+  if (mode === 'open') return null
   if (blindPct === null) return null
 
   const parts: string[] = []
@@ -41,4 +43,10 @@ export function beliefMapReading(
     parts.push(Math.abs(postPct - blindPct) >= LARGE_MOVEMENT ? 'The debate worked.' : "The debate didn't.")
   }
   return parts.join(' ')
+}
+
+/** Belief-map reading for an open (free-text) question, from its cluster count once clustered. */
+export function openQuestionReading(clusterCount: number | null): string {
+  if (clusterCount === null || clusterCount <= 0) return 'Open question. Cluster the answers.'
+  return `${clusterCount} answer ${clusterCount === 1 ? 'cluster' : 'clusters'}. Sharpen one into a proposition.`
 }

@@ -12,11 +12,15 @@
  * projector additionally checks `blindRevealed` before showing it (that is
  * demo step 2, the Reveal button). Aggregates only: clusters are label +
  * count, no wealth, no per-student dynamics labels.
+ *
+ * Plan §17 fields are emitted with their defaults here; each feature fills
+ * in its own values as it lands.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { TeacherQuestionRow, TeacherView } from '@/lib/types'
+import type { Phase, TeacherQuestionRow, TeacherView } from '@/lib/types'
 import type { QuestionRow, SessionRow } from '@/lib/db/types'
 import * as q from '@/lib/db/queries'
+import { featuresOf } from '@/lib/features'
 import { livePricePct } from '@/lib/phases/machine'
 import { maybeAdvance, questionLiquidity, toStates } from '@/lib/phases/advance'
 import { histogram10 } from '@/lib/scoring/histogram'
@@ -39,6 +43,11 @@ function questionRow(qu: QuestionRow): TeacherQuestionRow {
     postPricePct: post,
     movementPct: blind !== null && post !== null ? round1(post - blind) : null,
     reading: beliefMapReading(blind, post, outcome, qu.mode),
+    cascade: qu.cascade_mode,
+    spAnswer: qu.sp_answer,
+    referenceAnswer: qu.reference_answer,
+    clusterCount: null,
+    sourceIndex: null,
   }
 }
 
@@ -49,6 +58,7 @@ export async function buildTeacherView(client: SupabaseClient, session: SessionR
     q.getTickVersion(client, session.id),
   ])
   let questions = questionsRaw
+  const features = featuresOf(session.features)
 
   const view: TeacherView = {
     session: {
@@ -64,10 +74,12 @@ export async function buildTeacherView(client: SupabaseClient, session: SessionR
         openSeconds: session.open_seconds,
       },
       status: session.status,
+      features,
     },
     serverTime: now.toISOString(),
     participants: participants.map((p) => ({ id: p.id, name: p.display_name, joinedAt: p.joined_at })),
     questions: [],
+    cascadeComparison: null,
     current: null,
     leaderboard: [],
     realtime: { tickVersion },
@@ -83,7 +95,7 @@ export async function buildTeacherView(client: SupabaseClient, session: SessionR
   }
 
   view.questions = questions.map(questionRow)
-  view.leaderboard = await sessionLeaderboard(client, participants, questions)
+  view.leaderboard = await sessionLeaderboard(client, participants, questions, features)
 
   if (!current || current.phase === 'pending') return view
 
@@ -115,15 +127,15 @@ export async function buildTeacherView(client: SupabaseClient, session: SessionR
   // Price history starts at the blind price. Its timestamp is the snapshot
   // moment when we are still in snapshot; afterwards phase_started_at has
   // moved on, so we use the first trade's time (or now) as an approximation.
-  const priceHistory: { t: string; pct: number }[] = []
+  const priceHistory: { t: string; pct: number; phase: Phase }[] = []
   if (current.blind_price_pct !== null && phaseAtLeast(phase, 'snapshot')) {
     const t =
       phase === 'snapshot'
         ? (current.phase_started_at ?? now.toISOString())
         : (trades[0]?.created_at ?? current.phase_started_at ?? now.toISOString())
-    priceHistory.push({ t, pct: round1(current.blind_price_pct) ?? 50 })
+    priceHistory.push({ t, pct: round1(current.blind_price_pct) ?? 50, phase: 'snapshot' })
   }
-  for (const tr of trades) priceHistory.push({ t: tr.created_at, pct: round1(tr.price_after_pct) ?? 50 })
+  for (const tr of trades) priceHistory.push({ t: tr.created_at, pct: round1(tr.price_after_pct) ?? 50, phase: 'open' })
 
   view.current = {
     questionId: current.id,
@@ -134,6 +146,9 @@ export async function buildTeacherView(client: SupabaseClient, session: SessionR
     phase,
     phaseStartedAt: current.phase_started_at,
     phaseEndsAt: current.phase_ends_at,
+    cascade: current.cascade_mode,
+    phaseLog: current.phase_log,
+    referenceAnswer: current.reference_answer,
     submissionCount: submissions.filter((s) => s.blind_pct !== null).length,
     participantCount: participants.length,
     blindPricePct: round1(current.blind_price_pct),
@@ -150,9 +165,16 @@ export async function buildTeacherView(client: SupabaseClient, session: SessionR
         blindPct: byParticipant.get(id)?.blind_pct ?? null,
       })),
       turnOrder: g.turn_order.map((id) => nameOf.get(id) ?? 'Student'),
+      socratesQuestions: null,
     })),
     priceHistory,
     narration: null,
+    consideredOpposite: null,
+    surprisinglyPopular: null,
+    socraticStatus: 'none',
+    steelman: null,
+    topArguments: [],
+    argumentVotersPct: null,
   }
 
   return view

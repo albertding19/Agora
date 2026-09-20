@@ -67,6 +67,7 @@ export async function startQuestion(
       phase: 'blind',
       phase_started_at: now.toISOString(),
       phase_ends_at: plusSeconds(now, session.blind_seconds),
+      phase_log: [{ phase: 'blind', at: now.toISOString() }],
       n_at_start: n,
       liquidity_b: liquidity(n, session.budget, session.k),
     },
@@ -97,7 +98,12 @@ export async function advance(
   const to = nextPhase(from)
   if (!to) throw new HttpError(409, 'already_resolved', 'Question is already resolved')
 
-  const fields: Parameters<typeof q.updateQuestion>[2] = { phase: to, phase_started_at: now.toISOString() }
+  const fields: Parameters<typeof q.updateQuestion>[2] = {
+    phase: to,
+    phase_started_at: now.toISOString(),
+    // The losing concurrent caller's identical log is discarded by the guard, so no duplicates.
+    phase_log: [...question.phase_log, { phase: to, at: now.toISOString() }],
+  }
 
   if (from === 'pending') {
     throw new HttpError(409, 'use_start', 'Use the start route to begin a question')

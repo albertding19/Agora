@@ -9,11 +9,16 @@
  *   resolved    outcome, own calibration before/after, persuasion, leaderboard top.
  *
  * Wealth, stake, quantities, and other students' numbers never appear here.
+ *
+ * Plan §17 fields are emitted with their defaults here; each feature fills
+ * in its own values as it lands (consider-the-opposite step, prediction,
+ * steelman, Socrates questions, argument pairs).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { StudentView } from '@/lib/types'
 import type { ParticipantRow, QuestionRow, SessionRow } from '@/lib/db/types'
 import * as q from '@/lib/db/queries'
+import { featuresOf } from '@/lib/features'
 import { livePricePct } from '@/lib/phases/machine'
 import { maybeAdvance, questionLiquidity, toStates } from '@/lib/phases/advance'
 import { phaseAtLeast, round1, sessionLeaderboard } from './common'
@@ -27,8 +32,10 @@ export async function buildStudentView(
   now: Date,
 ): Promise<StudentView> {
   const questions = await q.listQuestions(client, session.id)
+  const features = featuresOf(session.features)
   const empty: StudentView = {
     session: { code: session.code, title: session.title },
+    features,
     me: { participantId: participant.id, name: participant.display_name },
     serverTime: now.toISOString(),
     status: 'lobby',
@@ -90,6 +97,13 @@ export async function buildStudentView(
         : null,
     pct: mine ? (mine.current_pct ?? mine.blind_pct) : null,
     submitted: mine?.blind_pct !== null && mine?.blind_pct !== undefined,
+    firstPct: null,
+    oppositePct: null,
+    oppositeReasoning: null,
+    blindStep: 'first',
+    predictedTruePct: null,
+    steelmanSide: null,
+    steelman: null,
   }
 
   if (phaseAtLeast(phase, 'structured') && myGroup) {
@@ -98,6 +112,7 @@ export async function buildStudentView(
       members: names.map((name) => ({ name })),
       turnOrder: names,
       turnSeconds: session.turn_seconds,
+      socratesQuestions: null,
     }
   }
 
@@ -111,13 +126,23 @@ export async function buildStudentView(
   }
 
   if (phase === 'resolved') {
-    const leaderboard = await sessionLeaderboard(client, participants, questions.map((qu) => (qu.id === question.id ? question : qu)))
+    const leaderboard = await sessionLeaderboard(
+      client,
+      participants,
+      questions.map((qu) => (qu.id === question.id ? question : qu)),
+      features,
+    )
     view.result = {
       outcome: question.mode === 'stem' ? question.correct_answer : null,
       calibrationFinal: round1(mine?.calibration_final ?? null),
       calibrationBlind: round1(mine?.calibration_blind ?? null),
       persuasion: round1(mine?.persuasion ?? null),
       leaderboardTop: leaderboard.slice(0, LEADERBOARD_TOP),
+      surprisinglyPopular: null,
+      steelman: null,
+      contrarianBonus: null,
+      argumentPairs: [],
+      argumentVotesCast: 0,
     }
   }
 

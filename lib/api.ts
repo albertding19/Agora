@@ -7,19 +7,31 @@ import type { z } from 'zod'
 import {
   AddQuestionsResult,
   ApiError,
+  ArgumentVoteResult,
+  CandidatesResult,
   CreateSessionResult,
+  FeaturesResult,
   JoinResult,
   OkResult,
+  OpposeResult,
   ProposeResult,
+  QuestionHistory,
+  SocratesResult,
+  SteelmanResult,
   StudentView,
   TeacherView,
   type AddQuestionsBody,
   type AdvanceBody,
+  type AnswerBody,
+  type ArgumentVoteBody,
   type CreateSessionBody,
+  type FeaturesPatchBody,
   type JoinBody,
+  type OpposeBody,
   type ProposeBody,
   type ReviseBody,
   type StartBody,
+  type SteelmanBody,
   type SubmitBody,
 } from '@/lib/types'
 
@@ -46,7 +58,7 @@ function defaultBaseUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 }
 
-type Method = 'GET' | 'POST'
+type Method = 'GET' | 'POST' | 'PATCH'
 
 export function createApi(opts: ApiOptions = {}) {
   const base = (opts.baseUrl ?? defaultBaseUrl()).replace(/\/$/, '')
@@ -92,8 +104,12 @@ export function createApi(opts: ApiOptions = {}) {
     createSession: (body: CreateSessionBody) => request('POST', '/api/sessions', body, CreateSessionResult),
     addQuestions: (sessionId: string, body: AddQuestionsBody) =>
       request('POST', `/api/sessions/${q(sessionId)}/questions`, body, AddQuestionsResult),
+    /** Plan §17: switch feature flags on or off mid-session; only the keys sent change. */
+    setFeatures: (sessionId: string, patch: FeaturesPatchBody) =>
+      request('PATCH', `/api/sessions/${q(sessionId)}/features`, patch, FeaturesResult),
+    /** Plan §17.3: five propositions from a topic (fills the P1 stub). */
     generate: (sessionId: string, topic: string) =>
-      request<{ ok: boolean }>('POST', `/api/sessions/${q(sessionId)}/generate`, { topic }),
+      request('POST', `/api/sessions/${q(sessionId)}/generate`, { topic }, CandidatesResult),
     join: (body: JoinBody) => request('POST', '/api/join', body, JoinResult),
     studentView: (sessionId: string, participantId: string) =>
       request('GET', `/api/sessions/${q(sessionId)}/view?participantId=${q(participantId)}`, undefined, StudentView),
@@ -113,6 +129,28 @@ export function createApi(opts: ApiOptions = {}) {
       request('POST', `/api/questions/${q(questionId)}/submit`, body, OkResult),
     revise: (questionId: string, body: ReviseBody) =>
       request('POST', `/api/questions/${q(questionId)}/revise`, body, OkResult),
+
+    // --- plan §17 extensions (routes land feature by feature) -------------
+    /** §17.1 consider the opposite: the second number; the blind number becomes the blend. */
+    oppose: (questionId: string, body: OpposeBody) =>
+      request('POST', `/api/questions/${q(questionId)}/oppose`, body, OpposeResult),
+    /** §17.3 open question: a free-text answer. */
+    answer: (questionId: string, body: AnswerBody) =>
+      request('POST', `/api/questions/${q(questionId)}/answer`, body, OkResult),
+    /** §17.3 teacher: sharpen the clustered answers into candidate propositions. */
+    sharpen: (questionId: string) =>
+      request('POST', `/api/questions/${q(questionId)}/sharpen`, {}, CandidatesResult),
+    /** §17.4 teacher: prepare one Socratic question per speaker in every group. */
+    socrates: (questionId: string) =>
+      request('POST', `/api/questions/${q(questionId)}/socrates`, {}, SocratesResult),
+    /** §17.7 student: submit the other side's best argument for grading. */
+    steelman: (questionId: string, body: SteelmanBody) =>
+      request('POST', `/api/questions/${q(questionId)}/steelman`, body, SteelmanResult),
+    /** §17.6 / §17.8 teacher: the price trajectory with anonymous annotations. */
+    history: (questionId: string) => request('GET', `/api/questions/${q(questionId)}/history`, undefined, QuestionHistory),
+    /** §17.9b student: one pairwise comparison of two anonymous arguments. */
+    argumentVote: (questionId: string, body: ArgumentVoteBody) =>
+      request('POST', `/api/questions/${q(questionId)}/argument-vote`, body, ArgumentVoteResult),
   }
 }
 

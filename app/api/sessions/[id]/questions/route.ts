@@ -21,8 +21,12 @@ export const POST = withErrors(async (request: Request, { params }: Ctx) => {
     body.questions.map((qi) => ({
       proposition: qi.proposition,
       mode: qi.mode,
-      // Humanities questions never resolve, so they never carry an answer.
+      // Humanities and open questions never resolve, so they never carry an answer.
       correct_answer: qi.mode === 'stem' ? (qi.correctAnswer ?? null) : null,
+      // Only an open question has a reference answer (plan §17.3).
+      reference_answer: qi.mode === 'open' ? qi.referenceAnswer || null : null,
+      source_question_id: qi.sourceQuestionId ?? null,
+      cascade_mode: qi.cascade ?? false,
     })),
   )
   await bumpTick(client, session.id)

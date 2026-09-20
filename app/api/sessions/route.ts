@@ -1,5 +1,6 @@
 import { db } from '@/lib/db/server'
 import { insertSession, insertTick } from '@/lib/db/queries'
+import { featuresOf } from '@/lib/features'
 import { HttpError, json, parseBody, withErrors } from '@/lib/http'
 import { newSessionCode, newToken } from '@/lib/ids'
 import { DEFAULT_BUDGET, DEFAULT_K } from '@/lib/market/lmsr'
@@ -16,6 +17,8 @@ export const POST = withErrors(async (request: Request) => {
   const client = db()
   const teacherToken = newToken()
   const timers = { ...DEFAULT_TIMERS, ...(body.timers ?? {}) }
+  // Absent flags stay off (plan §17).
+  const features = featuresOf(body.features)
 
   let session = null
   for (let attempt = 0; attempt < CODE_ATTEMPTS && !session; attempt++) {
@@ -28,6 +31,7 @@ export const POST = withErrors(async (request: Request) => {
       blind_seconds: timers.blindSeconds,
       turn_seconds: timers.turnSeconds,
       open_seconds: timers.openSeconds,
+      features,
     })
   }
   if (!session) throw new HttpError(500, 'code_collision', 'Could not allocate a unique session code')

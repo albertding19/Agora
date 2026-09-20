@@ -3,6 +3,7 @@
  *
  *   npx tsx scripts/simulate.ts [--students 5] [--distribution misconception|split|uncertain]
  *                               [--base http://localhost:3000] [--seed 42]
+ *                               [--features considerOpposite,predictClass,...]
  *
  * Uses lib/api.ts only (no database access), so it exercises exactly what the
  * phones and the dashboard exercise. Prints the blind consensus, the groups,
@@ -11,7 +12,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ApiRequestError, createApi } from '../lib/api'
-import type { QuestionInput, TeacherView } from '../lib/types'
+import { mulberry32 } from '../lib/scoring/prng'
+import { FEATURE_KEYS, type FeatureKey, type FeaturesPatchBody, type QuestionInput, type TeacherView } from '../lib/types'
 
 // --- tiny .env.local loader (no dotenv dependency) ------------------------
 function loadEnvLocal(): void {
@@ -42,16 +44,16 @@ function arg(name: string, fallback: string): string {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback
 }
 
-// --- deterministic PRNG --------------------------------------------------
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+/** `--features a,b,c` → the flags to switch on at creation (plan §17); unknown names fail fast. */
+function parseFeatures(spec: string): FeaturesPatchBody {
+  const flags: FeaturesPatchBody = {}
+  for (const name of spec.split(',').map((s) => s.trim()).filter(Boolean)) {
+    if (!(FEATURE_KEYS as readonly string[]).includes(name)) {
+      throw new Error(`unknown feature "${name}"; valid: ${FEATURE_KEYS.join(', ')}`)
+    }
+    flags[name as FeatureKey] = true
   }
+  return flags
 }
 
 const snap5 = (v: number) => Math.min(100, Math.max(0, Math.round(v / 5) * 5))
@@ -113,13 +115,18 @@ async function main(): Promise<void> {
   const distribution = arg('distribution', 'misconception') as Distribution
   const base = arg('base', process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000')
   const rnd = mulberry32(Number(arg('seed', '42')))
+  const features = parseFeatures(arg('features', ''))
+  const flagNames = Object.keys(features)
 
-  console.log(`Agora simulator → ${base} · ${students} students · ${distribution}`)
+  console.log(
+    `Agora simulator → ${base} · ${students} students · ${distribution}${flagNames.length ? ` · flags ${flagNames.join(', ')}` : ''}`,
+  )
 
   const teacher = createApi({ baseUrl: base })
   const created = await teacher.createSession({
     title: `Simulation ${new Date().toISOString().slice(11, 19)}`,
     timers: { blindSeconds: 10, turnSeconds: 5, openSeconds: 10 },
+    ...(flagNames.length ? { features } : {}),
   })
   const t = createApi({ baseUrl: base, teacherToken: created.teacherToken })
   console.log(`session ${created.sessionId} · code ${created.code}`)

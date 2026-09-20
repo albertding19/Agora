@@ -33,21 +33,22 @@ Projector tab  ──┘   app/api/* routes     └── Anthropic API (agents)
 - **Poll always, poke for speed.** Every client polls its view every 2 s. After every mutation the server bumps `session_ticks.version`; subscribed clients refetch immediately. A dead socket only adds lag.
 - **Everything derived is deterministic.** Price, blind price, groups, and scores are pure functions of the submissions (`lib/phases/machine.ts`), so any transition can be re-run safely and a crash mid-transition is retried by the next poll.
 
-## 3. Data model (`supabase/migrations/0001_init.sql`)
+## 3. Data model (`supabase/migrations/0001_init.sql`, then `0002_extensions.sql`)
 
 Ids are `uuid`. Beliefs are integer percent 0–100 in steps of 5 (`*_pct`). Prices are `numeric` percent. PostgREST returns `numeric` as strings; `num()` in `lib/db/types.ts` converts.
 
 | Table | Purpose | Notes |
 |---|---|---|
-| `sessions` | One class session | `code` (6 chars, no 0/O/1/I), `teacher_token`, `budget` (100), `k` (0.4), `blind_seconds` / `turn_seconds` / `open_seconds` (75/30/60), `current_question_id`, `status`. Never exposed to clients. |
+| `sessions` | One class session | `code` (6 chars, no 0/O/1/I), `teacher_token`, `budget` (100), `k` (0.4), `blind_seconds` / `turn_seconds` / `open_seconds` (75/30/60), `current_question_id`, `status`, `features` (jsonb, plan §17 flags, parsed by `featuresOf()`; all off by default). Never exposed to clients. |
 | `session_ticks` | The realtime poke | `version` bumped by `bump_tick(sid)` after every mutation. The only table with an RLS read policy and the only one in the Realtime publication. |
 | `participants` | Students | The teacher is not a participant. |
-| `questions` | One market each | `phase`, `phase_started_at`, `phase_ends_at`, `liquidity_b` and `n_at_start` (set when the question starts), `blind_price_pct`, `post_price_pct`, `blind_revealed`. STEM questions must carry `correct_answer` (check constraint). No market quantities are stored. |
-| `submissions` | One per student per question | `reasoning`, `ai_*` band, `blind_pct`, `current_pct`, `final_pct`, `group_id`, `cluster_index`, scores. `blind_pct` null means the student never submitted in the blind phase. |
+| `questions` | One market each | `phase`, `phase_started_at`, `phase_ends_at`, `liquidity_b` and `n_at_start` (set when the question starts), `blind_price_pct`, `post_price_pct`, `blind_revealed`. STEM questions must carry `correct_answer` (check constraint). `mode` is `stem`, `humanities`, or `open` (free text, plan §17.3). 0002 adds `reference_answer`, `source_question_id`, `cascade_mode`, `phase_log` (jsonb `[{ phase, at }]`, appended by every transition), `sp_actual_true_pct`, `sp_predicted_true_pct`, `sp_answer`. No market quantities are stored. |
+| `submissions` | One per student per question | `reasoning`, `ai_*` band, `blind_pct`, `current_pct`, `final_pct`, `group_id`, `cluster_index`, scores. `blind_pct` null means the student never submitted in the blind phase. 0002 adds `first_pct`, `opposite_pct`, `opposite_reasoning` (§17.1), `predicted_true_pct`, `sp_insight` (§17.2), `steelman_text`, `steelman_score`, `steelman_note` (§17.7), `contrarian_bonus` (§17.9a); `blind_pct` stays the number the engine reads. |
 | `trades` | Open-phase revisions | `pct_before/after`, `price_before/after_pct`. Price history = the blind price plus these rows. |
-| `groups` | Debate groups | `turn_order uuid[]` is also the member list. Upserted on `(question_id, idx)`. |
+| `groups` | Debate groups | `turn_order uuid[]` is also the member list. Upserted on `(question_id, idx)`. 0002 adds `socratic_questions text[]` (§17.4). |
 | `clusters` | Argument clusters | `label`, `member_ids`. Written out of band by the cluster route. |
 | `agent_runs` | Agent cache and log | Keyed by `(agent, version, input_hash)`. |
+| `argument_votes` | Pairwise argument comparisons (§17.9b, 0002) | `voter_id`, `winner_submission_id`, `loser_submission_id`; unique per voter on the unordered pair. Surfaced only as percentages and pairwise strengths, never tallies. |
 
 RLS is enabled on every table; the server uses the secret key and bypasses it.
 
@@ -136,8 +137,9 @@ Teacher routes read the token from the `x-teacher-token` header (`teacher-view` 
 
 | Method and path | Who | Body → Result |
 |---|---|---|
-| `POST /api/sessions` | teacher | `{ title, budget?, k?, timers? }` → `{ sessionId, code, teacherToken }` |
-| `POST /api/sessions/:id/questions` | teacher | `{ questions: [{ proposition, mode, correctAnswer }] }` (answer required for STEM) |
+| `POST /api/sessions` | teacher | `{ title, budget?, k?, timers?, features? }` → `{ sessionId, code, teacherToken }` |
+| `PATCH /api/sessions/:id/features` | teacher | `FeaturesPatchBody` (only the keys sent change) → `{ ok, features }` |
+| `POST /api/sessions/:id/questions` | teacher | `{ questions: [{ proposition, mode, correctAnswer?, cascade?, referenceAnswer?, sourceQuestionId? }] }` (answer required for STEM; reference answer stored for `open` only) |
 | `POST /api/sessions/:id/generate` | teacher | P1 stub (501) |
 | `POST /api/join` | student | `{ code, displayName }` → `{ sessionId, participantId }` |
 | `GET /api/sessions/:id/view?participantId=` | student | `StudentView` (runs `maybeAdvance`) |
@@ -148,12 +150,25 @@ Teacher routes read the token from the `x-teacher-token` header (`teacher-view` 
 | `POST /api/questions/:id/cluster` | teacher | runs the clusterer, writes `clusters` |
 | `POST /api/questions/:id/recompute-snapshot` | teacher | only while `phase = snapshot` |
 | `POST /api/questions/:id/propose` | student | `{ participantId, reasoning }` → `{ stance, lo, hi, reading, fallback }` |
-| `POST /api/questions/:id/submit` | student | `{ participantId, pct, reasoning? }` (blind only, upsert) |
+| `POST /api/questions/:id/submit` | student | `{ participantId, pct, reasoning?, predictedTruePct? }` (blind only, upsert; the prediction is accepted and ignored until §17.2 lands) |
 | `POST /api/questions/:id/revise` | student | `{ participantId, pct }` (open only) |
 | `GET /api/questions/:id/narrate` | teacher | P1 stub (501) |
 | `GET /api/health/agents` | ops | pre-warms every agent schema; hit at deploy and 30 min before the demo |
 
 Contracts: request and view schemas in `lib/types.ts`; `lib/api.ts` is the typed client used by the UI and by `scripts/simulate.ts`.
+
+Planned routes (plan §17; `lib/api.ts` and the result schemas in `lib/types.ts` already exist, each route lands with its feature and returns 404 until then):
+
+| Method and path | Who | Body → Result |
+|---|---|---|
+| `POST /api/questions/:id/oppose` | student | `OpposeBody` → `{ ok, blindPct }` (§17.1; blind only, flag `considerOpposite`) |
+| `POST /api/questions/:id/answer` | student | `AnswerBody` → `{ ok }` (§17.3; open mode, blind only) |
+| `POST /api/questions/:id/sharpen` | teacher | `{}` → `CandidatesResult` (§17.3; open mode, after clustering) |
+| `POST /api/sessions/:id/generate` | teacher | `{ topic }` → `CandidatesResult` (§17.3; fills the 501 stub) |
+| `POST /api/questions/:id/socrates` | teacher | `{}` → `SocratesResult` (§17.4; snapshot+, flag `socrates`) |
+| `POST /api/questions/:id/steelman` | student | `SteelmanBody` → `SteelmanResult` (§17.7; snapshot/structured, flag `steelman`) |
+| `GET /api/questions/:id/history` | teacher | `QuestionHistory` (§17.6 / §17.8; no `maybeAdvance`) |
+| `POST /api/questions/:id/argument-vote` | student | `ArgumentVoteBody` → `{ ok, counted }` (§17.9b; resolved, flag `argumentElo`) |
 
 ## 11. Agents (`lib/agents/`)
 
