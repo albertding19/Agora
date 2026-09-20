@@ -186,13 +186,15 @@ Schemas use plain enums, numbers, and strings. The SDK strips numeric range cons
 |---|---|---|---|---|
 | Proposer | P0 | low | `{ stance, lo, hi, reading }` | UNCLEAR, 40–60, "I couldn't read a clear lean. Set your own number." |
 | Clusterer | P0 | medium | 2–4 `{ label, members }` (short indices, leftovers → "Other") | no clusters |
-| Generator | P1 / §17.3 | high | topic → 5, or cluster → 1–3 `{ text, correctAnswer, misconception, sourceClusterIndex }` | canned demo list (topic) / label-derived candidates with the answer unset (cluster) |
+| Generator | P1 / §17.3 | medium, 25 s deadline | topic → 5, or cluster → 1–3 `{ text, correctAnswer, misconception, sourceClusterIndex }` | canned demo list (topic) / label-derived candidates with the answer unset (cluster) |
 | Socrates | §17.4 | medium | `{ questions[] }`, one per turn in speaking order, questions only, never the answer | fixed Socratic list, one per slot |
 | Steelman | §17.7 | low | `{ fidelity 0–100 step 5, note }` | fidelity `null` (never rewards nor punishes) + neutral note |
 | Narrator | P1 | medium | two sentences, never names a student | "The class moved from X% to Y%." |
 | Term report | P2 | high | 5 bullets from aggregate metrics | canned bullets |
 
 The proposer never blocks the slider: the slider renders at 50 immediately and the band slides in when the call returns. Empty text → no call. `npm run agent:eval proposer` runs the 10 cases with 10-way concurrency, cache off, and prints pass count and p50/p95; decide by hour 10 on **p95** whether the proposer moves to `claude-sonnet-5` or `claude-haiku-4-5` (one constant in `proposer.ts`). Bump `version` when a prompt changes so the cache invalidates.
+
+**Measured Sep 20, 2026** (local Supabase, `claude-opus-5`, `npm run agent:eval`, 10 cases each, 10-way concurrency): proposer 10/10 (p95 3.5 s), clusterer 8/10 (p95 5.9 s), Socrates 10/10 (p95 4.8 s), steelman 9/10 (p95 4.4 s), generator 10/10 at effort `medium` with `GENERATOR_DEADLINE_MS = 25_000` (p95 19.8 s; at the 8 s deadline it was 2/10 on `high` and 3/10 on `medium`, all timeouts on the five-proposition topic kind). The generator is teacher-triggered and out of band (its routes allow 30 s), so it is the one agent that does not use the 8 s deadline. Cluster-kind candidates are ordered stated-misconception (FALSE) first, then by cluster size, which is the plan's "largest wrong cluster first".
 
 ## 12. Frontend (`app/`, `components/`)
 

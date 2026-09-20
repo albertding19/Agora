@@ -230,6 +230,21 @@ describe('normalizeGenerator', () => {
     expect(out.candidates[1].text).toBe('The Earth is nearer the Sun in July.')
   })
 
+  it('puts stated misconceptions (FALSE) before correct-belief propositions, then larger clusters first', () => {
+    const out = normalizeGenerator(
+      {
+        candidates: [
+          rawOf('The tilt of the axis causes the seasons.', { sourceClusterIndex: 1, correctAnswer: 'TRUE' }),
+          rawOf('The Moon pulls the seasons around.', { sourceClusterIndex: 2, correctAnswer: 'FALSE' }),
+          rawOf('The Earth is closer to the Sun in summer.', { sourceClusterIndex: 0, correctAnswer: 'FALSE' }),
+        ],
+      },
+      clusterInput,
+    )!
+    expect(out.candidates.map((c) => c.sourceClusterIndex)).toEqual([0, 2, 1])
+    expect(out.candidates.map((c) => c.correctAnswer)).toEqual([false, false, true])
+  })
+
   it('caps topic output at 5 and cluster output at 3', () => {
     const many = Array.from({ length: 8 }, (_, i) => rawOf(`Claim number ${i} about the topic.`, { sourceClusterIndex: 0 }))
     expect(normalizeGenerator({ candidates: many }, topicInput)!.candidates).toHaveLength(MAX_TOPIC_CANDIDATES)

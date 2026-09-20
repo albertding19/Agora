@@ -17,7 +17,7 @@ npm install
 cp .env.example .env.local        # fill in the keys
 ```
 
-Apply `supabase/migrations/0001_init.sql` once in the Supabase SQL editor (Database → SQL), then `0002_extensions.sql` (additive, safe to paste twice). The first creates the tables, enables row level security, and publishes `session_ticks` to Realtime; the second adds the plan §17 columns, `sessions.features`, and `argument_votes`.
+Apply `supabase/migrations/0001_init.sql` once in the Supabase SQL editor (Database → SQL), then `0002_extensions.sql` (additive, safe to paste twice). Local alternative: with Docker running, `npx supabase start` applies both migrations to a local stack (`supabase/config.toml` is checked in); copy `API_URL`, `PUBLISHABLE_KEY`, and `SECRET_KEY` from `npx supabase status -o env` into `.env.local`. The first creates the tables, enables row level security, and publishes `session_ticks` to Realtime; the second adds the plan §17 columns, `sessions.features`, and `argument_votes`.
 
 ```bash
 npm run dev                       # http://localhost:3000

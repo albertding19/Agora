@@ -36,7 +36,7 @@ npm run seed:demo -- [--cascade] [--no-warm]                  # demo session, fa
 npm run agent:eval proposer                                    # 10 cases, 10-way concurrency, prints p95 (also clusterer, generator, socrates, steelman)
 ```
 
-Apply `supabase/migrations/0001_init.sql` once in the Supabase SQL editor, then `0002_extensions.sql` (additive; safe to paste twice).
+Apply `supabase/migrations/0001_init.sql` once in the Supabase SQL editor, then `0002_extensions.sql` (additive; safe to paste twice). Local alternative: with Docker running, `npx supabase start` applies both migrations to a local stack (`supabase/config.toml` is checked in); copy `API_URL`, `PUBLISHABLE_KEY`, and `SECRET_KEY` from `npx supabase status -o env` into `.env.local`.
 
 ## Repo layout
 
@@ -163,3 +163,13 @@ Next.js 16 notes: route and page `params` are Promises; `LayoutProps`/`PageProps
 - Seed the demo questions; pre-warm agents via `/api/health/agents` at deploy and 30 minutes before the slot.
 - Rehearse 3× with `npm run simulate` and then with phones, on the production URL. Freeze `main` at hour 22.
 - No slides until the dashboard beat. Pitch lines, prior art, and research citations live in plan §12–14 and §17.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

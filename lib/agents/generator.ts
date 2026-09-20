@@ -18,7 +18,6 @@ import { LANGUAGE_RULE, findBannedWord } from '@/lib/language'
 import type { Candidate } from '@/lib/types'
 import { OTHER_LABEL } from './clusterer'
 import {
-  DEFAULT_DEADLINE_MS,
   DEFAULT_MODEL,
   PROMPT_TAIL,
   runAgent,
@@ -46,7 +45,15 @@ export interface GeneratorOutput {
   candidates: Candidate[]
 }
 
-export const GENERATOR_VERSION = 1
+export const GENERATOR_VERSION = 3
+/**
+ * The generator is a teacher-triggered, out-of-band call (sharpen / generate,
+ * both routes allow 30 s), never a per-student burst, so it gets a longer
+ * deadline than the 8 s proposer: measured on claude-opus-5 at effort medium,
+ * five topic propositions take 12-20 s (p95 19.8 s over the 10-case set), so
+ * 25 s leaves margin inside the routes' 30 s maxDuration.
+ */
+export const GENERATOR_DEADLINE_MS = 25_000
 export const MAX_TOPIC_CANDIDATES = 5
 export const MAX_CLUSTER_CANDIDATES = 3
 export const PROPOSITION_MIN_CHARS = 10
@@ -181,9 +188,16 @@ function clusterCount(input: GeneratorInput, c: Candidate): number | null {
   return input.clusters[c.sourceClusterIndex]?.count ?? null
 }
 
-/** Stable order: larger source cluster first, unknown source last. */
-function byClusterCount(input: GeneratorInput) {
+/**
+ * Stable order for cluster-kind candidates: stated misconceptions
+ * (correctAnswer FALSE) before propositions that state a correct belief, then
+ * the larger source cluster first, unknown source last. This is the plan's
+ * "largest wrong cluster first": a proposition that states a cluster's belief
+ * is FALSE exactly when that cluster is wrong.
+ */
+function byWrongThenClusterCount(input: GeneratorInput) {
   return (a: Candidate, b: Candidate): number => {
+    if (a.correctAnswer !== b.correctAnswer) return a.correctAnswer ? 1 : -1
     const ra = clusterCount(input, a)
     const rb = clusterCount(input, b)
     if (ra === rb) return 0
@@ -193,10 +207,6 @@ function byClusterCount(input: GeneratorInput) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// normalize
-// ---------------------------------------------------------------------------
-
 /**
  * Normalize raw candidates:
  *  - text cleaned per cleanText; unusable texts dropped
@@ -205,7 +215,7 @@ function byClusterCount(input: GeneratorInput) {
  *    dropped on a banned word
  *  - correctAnswer TRUE/FALSE → boolean
  *  - sourceClusterIndex: null for topic; a valid cluster index or null for cluster
- *  - cluster kind stable-sorted by source cluster count, largest first
+ *  - cluster kind stable-sorted: stated misconceptions first, then larger source cluster first
  *  - capped at 5 (topic) or 3 (cluster)
  * Returns null when the shape is unusable or nothing survives.
  */
@@ -234,7 +244,7 @@ export function normalizeGenerator(raw: unknown, input: GeneratorInput): Generat
   }
 
   if (kept.length === 0) return null
-  if (input.kind === 'cluster') kept.sort(byClusterCount(input))
+  if (input.kind === 'cluster') kept.sort(byWrongThenClusterCount(input))
   const cap = input.kind === 'topic' ? MAX_TOPIC_CANDIDATES : MAX_CLUSTER_CANDIDATES
   return { candidates: kept.slice(0, cap) }
 }
@@ -326,8 +336,8 @@ export const generatorSpec: AgentSpec<GeneratorInput, GeneratorOutput> = {
   name: 'generator',
   version: GENERATOR_VERSION,
   model: DEFAULT_MODEL,
-  effort: 'high',
-  deadlineMs: DEFAULT_DEADLINE_MS,
+  effort: 'medium',
+  deadlineMs: GENERATOR_DEADLINE_MS,
   maxTokens: 4096,
   system: SYSTEM,
   userMessage,
