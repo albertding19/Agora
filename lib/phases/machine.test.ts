@@ -8,6 +8,7 @@ import {
   phaseDurationSeconds,
   speakerIndex,
   timerExpired,
+  transitionTarget,
 } from './machine'
 import { liquidity } from '@/lib/market/lmsr'
 
@@ -51,6 +52,28 @@ describe('phase order and timers', () => {
     expect(autoAdvanceTarget({ phase: 'blind', mode: 'stem', correctAnswer: true, phaseEndsAt: null }, now)).toBeNull()
   })
 
+  it('lands an open question on resolved straight after the snapshot', () => {
+    expect(transitionTarget('snapshot', 'open')).toBe('resolved')
+    expect(transitionTarget('snapshot', 'stem')).toBe('structured')
+    expect(transitionTarget('snapshot', 'humanities')).toBe('structured')
+    expect(transitionTarget('blind', 'open')).toBe('snapshot')
+    expect(transitionTarget('resolved', 'open')).toBeNull()
+    expect(transitionTarget('resolved', 'stem')).toBeNull()
+    expect(transitionTarget('resolved', 'humanities')).toBeNull()
+  })
+
+  it('auto-advances an open question only out of blind', () => {
+    const past = new Date('2026-09-20T09:00:00Z').toISOString()
+    const now = new Date('2026-09-20T10:00:00Z')
+    expect(autoAdvanceTarget({ phase: 'blind', mode: 'open', correctAnswer: null, phaseEndsAt: past }, now)).toBe('snapshot')
+    expect(autoAdvanceTarget({ phase: 'snapshot', mode: 'open', correctAnswer: null, phaseEndsAt: past }, now)).toBeNull()
+    expect(autoAdvanceTarget({ phase: 'snapshot', mode: 'open', correctAnswer: null, phaseEndsAt: null }, now)).toBeNull()
+    // Never reached for an open question, but a stray timer must not move it.
+    expect(autoAdvanceTarget({ phase: 'structured', mode: 'open', correctAnswer: null, phaseEndsAt: past }, now)).toBeNull()
+    expect(autoAdvanceTarget({ phase: 'open', mode: 'open', correctAnswer: null, phaseEndsAt: past }, now)).toBeNull()
+    expect(autoAdvanceTarget({ phase: 'blind', mode: 'open', correctAnswer: null, phaseEndsAt: null }, now)).toBeNull()
+  })
+
   it('computes the speaker from the clock', () => {
     const started = new Date('2026-09-20T10:00:00Z')
     expect(speakerIndex(started, new Date('2026-09-20T10:00:10Z'), 30)).toBe(0)
@@ -77,6 +100,29 @@ describe('snapshot', () => {
     expect(result.groups).toHaveLength(1)
     expect([...result.groups[0].turnOrder].sort()).toEqual(['a', 'b', 'c', 'd', 'e'])
     expect(result.groups[0].turnOrder.at(-1)).toBe('e') // non-submitter speaks last
+    // Nobody predicted the class, so there is no surprisingly popular answer.
+    expect(result.surprisinglyPopular.actualTruePct).toBeCloseTo(100)
+    expect(result.surprisinglyPopular.predictedTruePct).toBeNull()
+    expect(result.surprisinglyPopular.answer).toBeNull()
+  })
+
+  it('finds the surprisingly popular answer from the class predictions', () => {
+    const result = computeSnapshot({
+      participantIds: ['a', 'b', 'c', 'd', 'e'],
+      submissions: [
+        { participantId: 'a', blindPct: 75, currentPct: null, predictedTruePct: 80 },
+        { participantId: 'b', blindPct: 80, currentPct: null, predictedTruePct: 85 },
+        { participantId: 'c', blindPct: 70, currentPct: null, predictedTruePct: 80 },
+        { participantId: 'd', blindPct: 75, currentPct: null, predictedTruePct: 85 },
+      ],
+      budget: B,
+      b,
+    })
+    // Everyone leaned TRUE (100%) while the class expected 82.5% to: TRUE is surprisingly popular.
+    expect(result.blindPricePct).toBeCloseTo(73.1, 0)
+    expect(result.surprisinglyPopular.actualTruePct).toBeCloseTo(100)
+    expect(result.surprisinglyPopular.predictedTruePct).toBeCloseTo(82.5)
+    expect(result.surprisinglyPopular.answer).toBe(true)
   })
 })
 
@@ -106,8 +152,8 @@ describe('live price', () => {
 describe('resolution', () => {
   const groups = [{ idx: 0, turnOrder: ['a', 'b', 'c'] }]
   const submissions = [
-    { participantId: 'a', blindPct: 20, currentPct: null },
-    { participantId: 'b', blindPct: 80, currentPct: 60 },
+    { participantId: 'a', blindPct: 20, currentPct: null, predictedTruePct: 70 },
+    { participantId: 'b', blindPct: 80, currentPct: 60, predictedTruePct: 70 },
     { participantId: 'c', blindPct: 70, currentPct: 40 },
   ]
 
@@ -125,13 +171,63 @@ describe('resolution', () => {
     expect(r.postPricePct).toBeCloseTo(42.6, 0)
   })
 
+  it('marks who knew something the crowd did not', () => {
+    const r = computeResolution({ mode: 'stem', outcome: false, budget: B, b, submissions, groups })
+    // a leaned FALSE (right) while expecting 70% of the class to say TRUE.
+    expect(r.perParticipant.get('a')!.spInsight).toBe(true)
+    // b leaned TRUE: wrong, so no insight even though the prediction matched.
+    expect(r.perParticipant.get('b')!.spInsight).toBe(false)
+    // c never predicted the class.
+    expect(r.perParticipant.get('c')!.spInsight).toBeNull()
+  })
+
+  it('credits a right contrarian with half the crowd error', () => {
+    const r = computeResolution({ mode: 'stem', outcome: false, budget: B, b, submissions, groups })
+    // Blind net = −60+60+40 = 40 → blind price σ(0.2) ≈ 54.98: the crowd leaned TRUE and was wrong.
+    // a leaned FALSE: round(0.5 · 4.98) = 2. b and c leaned with the crowd.
+    expect(r.perParticipant.get('a')!.contrarianBonus).toBe(2)
+    expect(r.perParticipant.get('b')!.contrarianBonus).toBe(0)
+    expect(r.perParticipant.get('c')!.contrarianBonus).toBe(0)
+  })
+
+  it('gives no contrarian credit and no insight when the crowd was right', () => {
+    const r = computeResolution({ mode: 'stem', outcome: true, budget: B, b, submissions, groups })
+    expect(r.perParticipant.get('a')!.contrarianBonus).toBe(0)
+    expect(r.perParticipant.get('b')!.contrarianBonus).toBe(0)
+    expect(r.perParticipant.get('a')!.spInsight).toBe(false)
+    expect(r.perParticipant.get('b')!.spInsight).toBe(false)
+  })
+
   it('never scores humanities', () => {
     const r = computeResolution({ mode: 'humanities', outcome: null, budget: B, b, submissions, groups })
     for (const v of r.perParticipant.values()) {
       expect(v.calibrationFinal).toBeNull()
       expect(v.calibrationBlind).toBeNull()
       expect(v.persuasion).toBeNull()
+      expect(v.contrarianBonus).toBeNull()
+      // Only two predictions: no surprisingly popular answer to measure insight against.
+      expect(v.spInsight).toBeNull()
     }
     expect(r.postPricePct).toBeCloseTo(42.6, 0)
+  })
+
+  it('uses the surprisingly popular answer as the humanities reference', () => {
+    const r = computeResolution({
+      mode: 'humanities',
+      outcome: null,
+      budget: B,
+      b,
+      submissions: [
+        { participantId: 'a', blindPct: 20, currentPct: null, predictedTruePct: 70 },
+        { participantId: 'b', blindPct: 80, currentPct: 60, predictedTruePct: 70 },
+        { participantId: 'c', blindPct: 70, currentPct: 40, predictedTruePct: 90 },
+      ],
+      groups,
+    })
+    // 66.7% leaned TRUE vs 76.7% expected: FALSE is surprisingly popular; a leaned FALSE and expected a TRUE majority.
+    expect(r.perParticipant.get('a')!.spInsight).toBe(true)
+    expect(r.perParticipant.get('b')!.spInsight).toBe(false)
+    expect(r.perParticipant.get('c')!.spInsight).toBe(false)
+    expect(r.perParticipant.get('a')!.contrarianBonus).toBeNull()
   })
 })

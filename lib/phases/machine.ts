@@ -5,7 +5,8 @@
  *
  * The plan's six beats map as: Blind = blind; Snapshot + Pairing = snapshot
  * (pairing runs inside the transition); Structured round = structured;
- * Open discussion = open; Resolve = resolved.
+ * Open discussion = open; Resolve = resolved. An open *question* (mode
+ * 'open', plan §17.3) skips the debate: snapshot → resolved.
  *
  * Nothing in this file touches the database. The DB-aware transition code
  * (lib/phases/advance.ts) calls these functions, writes the results, and
@@ -16,6 +17,8 @@ import { PHASES, type Mode, type Phase, type PhaseLogEntry, type Timers } from '
 import { pricePct } from '@/lib/market/lmsr'
 import { calibrationOrNull } from '@/lib/scoring/calibration'
 import { persuasionScores } from '@/lib/scoring/persuasion'
+import { contrarianBonus } from '@/lib/scoring/contrarian'
+import { spInsight, surprisinglyPopular, type SpResult } from '@/lib/scoring/surprisinglyPopular'
 import { pairStudents, type DebateGroup } from '@/lib/pairing/pair'
 
 export const ADVANCE_GRACE_MS = 2000
@@ -32,6 +35,16 @@ export function nextPhase(phase: Phase): Phase | null {
  */
 export function isOpenQuestion(q: { mode: Mode }): boolean {
   return q.mode === 'open'
+}
+
+/**
+ * Where a transition out of `from` lands. The stored phase order is
+ * positional (nextPhase); the one exception is an open question, which has
+ * no debate and goes from snapshot straight to resolved.
+ */
+export function transitionTarget(from: Phase, mode: Mode): Phase | null {
+  if (isOpenQuestion({ mode }) && from === 'snapshot') return 'resolved'
+  return nextPhase(from)
 }
 
 /** When a question first entered `phase` according to its phase log, or null if it never did. */
@@ -76,12 +89,14 @@ export interface AutoAdvanceInput {
 
 /**
  * The phase a timed question should move to on its own, or null.
- * STEM questions never auto-resolve without an answer.
+ * STEM questions never auto-resolve without an answer. An open question is
+ * timed only while answers come in (blind); everything after is a teacher click.
  */
 export function autoAdvanceTarget(q: AutoAdvanceInput, now: Date, graceMs = ADVANCE_GRACE_MS): Phase | null {
   if (!isTimed(q.phase) || !timerExpired(q.phaseEndsAt, now, graceMs)) return null
+  if (isOpenQuestion(q) && q.phase !== 'blind') return null
   if (q.phase === 'open' && q.mode === 'stem' && q.correctAnswer === null) return null
-  return nextPhase(q.phase)
+  return transitionTarget(q.phase, q.mode)
 }
 
 /** Index into turn_order of who is speaking now (may exceed the group size once all turns are done). */
@@ -99,6 +114,8 @@ export interface SubmissionState {
   participantId: string
   blindPct: number | null
   currentPct: number | null
+  /** Predict the class (plan §17.2). Optional so fixtures built as literals keep compiling. */
+  predictedTruePct?: number | null
 }
 
 /** Price over the numbers students currently hold (current, else blind). Non-submitters are excluded. */
@@ -117,6 +134,13 @@ export function blindPricePct(submissions: readonly SubmissionState[], budget: n
   return pricePct(pcts, budget, b)
 }
 
+/** The surprisingly popular answer over blind numbers and class predictions (plan §17.2). */
+function surprisinglyPopularOf(submissions: readonly SubmissionState[]): SpResult {
+  return surprisinglyPopular(
+    submissions.map((s) => ({ blindPct: s.blindPct, predictedTruePct: s.predictedTruePct ?? null })),
+  )
+}
+
 export interface SnapshotInput {
   participantIds: readonly string[]
   submissions: readonly SubmissionState[]
@@ -127,9 +151,11 @@ export interface SnapshotInput {
 export interface SnapshotResult {
   blindPricePct: number
   groups: DebateGroup[]
+  /** Blind-phase data only (frozen by the phase gate), so re-running the snapshot gives the same answer. */
+  surprisinglyPopular: SpResult
 }
 
-/** blind → snapshot: the blind price and the debate groups. Deterministic. */
+/** blind → snapshot: the blind price, the debate groups, and the surprisingly popular answer. Deterministic. */
 export function computeSnapshot(input: SnapshotInput): SnapshotResult {
   const byId = new Map(input.submissions.map((s) => [s.participantId, s]))
   const groups = pairStudents(
@@ -138,7 +164,11 @@ export function computeSnapshot(input: SnapshotInput): SnapshotResult {
       blindPct: byId.get(participantId)?.blindPct ?? null,
     })),
   )
-  return { blindPricePct: blindPricePct(input.submissions, input.budget, input.b), groups }
+  return {
+    blindPricePct: blindPricePct(input.submissions, input.budget, input.b),
+    groups,
+    surprisinglyPopular: surprisinglyPopularOf(input.submissions),
+  }
 }
 
 export interface ResolutionInput {
@@ -155,6 +185,15 @@ export interface ParticipantResolution {
   calibrationFinal: number | null
   calibrationBlind: number | null
   persuasion: number | null
+  /**
+   * Knew something the crowd didn't (plan §17.2): own lean matched the
+   * reference (the outcome on STEM, the surprisingly popular answer
+   * otherwise) while expecting most of the class to disagree. Null when the
+   * student, their prediction, or the reference has no lean.
+   */
+  spInsight: boolean | null
+  /** Contrarian credit (plan §17.9a): 0 for scored students who do not qualify, null when not scoreable. */
+  contrarianBonus: number | null
 }
 
 export interface ResolutionResult {
@@ -167,6 +206,11 @@ export function computeResolution(input: ResolutionInput): ResolutionResult {
   const scoreable = input.mode === 'stem' && input.outcome !== null
   const outcome = input.outcome
   const byId = new Map(input.submissions.map((s) => [s.participantId, s]))
+  // Recomputed from the same inputs the snapshot used (`b` is liquidity_b in
+  // both transitions), so these equal the stored blind price and sp_* columns.
+  const blindPrice = blindPricePct(input.submissions, input.budget, input.b)
+  const sp = surprisinglyPopularOf(input.submissions)
+  const spReference = input.mode === 'stem' ? outcome : sp.answer
 
   const perParticipant = new Map<string, ParticipantResolution>()
   for (const s of input.submissions) {
@@ -176,6 +220,9 @@ export function computeResolution(input: ResolutionInput): ResolutionResult {
       calibrationFinal: scoreable ? calibrationOrNull(finalPct, outcome) : null,
       calibrationBlind: scoreable ? calibrationOrNull(s.blindPct, outcome) : null,
       persuasion: null,
+      spInsight: spInsight(s.blindPct, s.predictedTruePct ?? null, spReference),
+      contrarianBonus:
+        scoreable && outcome !== null && finalPct !== null ? contrarianBonus(s.blindPct, blindPrice, outcome) : null,
     })
   }
 

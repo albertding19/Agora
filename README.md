@@ -17,7 +17,7 @@ npm install
 cp .env.example .env.local        # fill in the keys
 ```
 
-Apply `supabase/migrations/0001_init.sql` once in the Supabase SQL editor (Database → SQL). It creates the tables, enables row level security, and publishes `session_ticks` to Realtime.
+Apply `supabase/migrations/0001_init.sql` once in the Supabase SQL editor (Database → SQL), then `0002_extensions.sql` (additive, safe to paste twice). The first creates the tables, enables row level security, and publishes `session_ticks` to Realtime; the second adds the plan §17 columns, `sessions.features`, and `argument_votes`.
 
 ```bash
 npm run dev                       # http://localhost:3000
@@ -42,6 +42,6 @@ Scaffold, generated at hour 0. See the bottom of `ARCHITECTURE.md` and the notes
 
 - Implemented and unit-tested: `lib/market`, `lib/scoring`, `lib/pairing`, `lib/phases/machine.ts`, `lib/agents` (normalization).
 - Implemented, type-checked, **not yet run against a live Supabase project**: the route handlers, `lib/phases/advance.ts`, `lib/views`, the pages, `lib/realtime`, `scripts/simulate.ts`.
-- Stubs returning 501: `POST /api/sessions/:id/generate`, `GET /api/questions/:id/narrate`, `scripts/seed-demo.ts`.
-- §17 agents built, unit-tested, and registered in `npm run agent:eval` and `GET /api/health/agents`: `lib/agents/generator.ts`, `lib/agents/socrates.ts`, `lib/agents/steelman.ts`. `generate` stops being a 501 once the §17.3 route lands (it is still a stub today).
+- Stubs returning 501: `GET /api/questions/:id/narrate`.
+- Plan §17 extensions built behind per-session flags (`sessions.features`, toggled from the dashboard's Session settings card): consider the opposite, predict the class / surprisingly popular, open question → proposition (a question mode, no flag), Socrates agent, cascade mode (per question), the Socratic arc and replay, steelman gate, contrarian credit, argument Elo. Agents `lib/agents/generator.ts`, `socrates.ts`, `steelman.ts` are unit-tested and registered in `npm run agent:eval` and `GET /api/health/agents`. `scripts/seed-demo.ts` creates the demo session with the fast preset. With every flag off the P0 path is unchanged.
 - First thing to do with credentials: apply the migration, `npm run dev`, then `npm run simulate` and fix what breaks.

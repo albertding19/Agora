@@ -4,6 +4,7 @@ import { requireParticipant, requireQuestion } from '@/lib/auth'
 import { upsertSubmission } from '@/lib/db/queries'
 import { db } from '@/lib/db/server'
 import { HttpError, json, parseBody, withErrors } from '@/lib/http'
+import { isOpenQuestion } from '@/lib/phases/machine'
 import { ProposeBody, type ProposeResult } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
@@ -22,6 +23,9 @@ export const POST = withErrors(async (request: Request, { params }: Ctx) => {
   const { question, session } = await requireQuestion(client, id)
   const body = await parseBody(ProposeBody, request)
   await requireParticipant(client, session.id, body.participantId)
+  if (isOpenQuestion(question)) {
+    throw new HttpError(409, 'open_mode', 'Open questions take a written answer; there is no number to propose')
+  }
   if (question.phase !== 'blind') {
     throw new HttpError(409, 'not_in_blind_phase', 'Reasoning can only be read during the blind phase')
   }

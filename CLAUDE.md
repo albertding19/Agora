@@ -30,10 +30,13 @@ npm run lint                # ESLint + scripts/lint-language.sh (banned words)
 npm run typecheck           # tsc --noEmit (run `npx next typegen` first if LayoutProps errors)
 npm run build
 npm run simulate -- --students 5 --distribution misconception   # drives a full session via HTTP
-npm run agent:eval proposer                                    # 10 cases, 10-way concurrency, prints p95
+npm run simulate -- --features considerOpposite,predictClass,steelman,socrates,contrarianCredit,argumentElo --cascade --elo
+                                                              # §17 flags (unknown names fail fast; --elo needs argumentElo)
+npm run seed:demo -- [--cascade] [--no-warm]                  # demo session, fast preset, DEMO_FEATURES, pre-warms agents
+npm run agent:eval proposer                                    # 10 cases, 10-way concurrency, prints p95 (also clusterer, generator, socrates, steelman)
 ```
 
-Apply `supabase/migrations/0001_init.sql` once in the Supabase SQL editor.
+Apply `supabase/migrations/0001_init.sql` once in the Supabase SQL editor, then `0002_extensions.sql` (additive; safe to paste twice).
 
 ## Repo layout
 
@@ -56,10 +59,10 @@ The three contracts frozen at hour 0–1: `supabase/migrations/0001_init.sql`, `
 ## Hard rules (never break)
 
 1. **Language.** Never use: bet, wager, odds, shares, gamble, payout. Use: belief, confidence, consensus, stake (internal only), score. Applies to UI copy, agent prompts, variable names visible to users, and commit messages that might be shown. `npm run lint` enforces it; `lib/language.ts` is the only exception.
-2. **Wealth is internal only.** Never display play-money balance, stake, or quantity. Leaderboards rank by calibration, then persuasion. Never by wealth. Nothing of the kind enters a view model.
+2. **Wealth is internal only.** Never display play-money balance, stake, or quantity. Leaderboards rank by calibration (plus contrarian credit when that flag is on), then persuasion, then steelman fidelity. Never by wealth. Nothing of the kind enters a view model.
 3. **Aggregates only.** Never label an individual student as a herder, dominant, or in an echo chamber. Call these "dynamics," not "fallacies."
 4. **The student owns the final number.** The AI proposes a band; the student confirms or drags. Never auto-submit an AI number. The slider is always available and never blocked on the AI.
-5. **Never show a vote count.** Show prices and distributions.
+5. **Never show a vote count.** Show prices and distributions. Argument comparisons (§17.9b) surface as percentages and pairwise strengths, never tallies; the only "N of M" allowed is the teacher-only participation stat.
 6. **The server is the only writer.** Clients never write to Supabase and never read tables directly; the only client-side Supabase use is the Realtime subscription on `session_ticks`. Visibility rules live in `lib/views/*` and nowhere else.
 7. **Cut list, do not build:** accounts/login/auth, multi-outcome markets, audio capture, live PCA or anything computed on stage, per-student profiles, anything that labels an individual.
 8. **P0 gate.** Nothing in plan §17 is touched until every P0 item works end-to-end and the demo runs without manual intervention. If P0 is not done by hour 14, P1/P2/§17 are cut. No exceptions.
@@ -87,22 +90,24 @@ Stored phases `pending → blind → snapshot → structured → open → resolv
 
 | Phase | What happens | Price visible to |
 |---|---|---|
-| blind | Optional reasoning (≤ 200 chars). Proposer suggests a band. Student sets a number (slider, step 5). Upsert until snapshot. | Nobody |
+| blind | Optional reasoning (≤ 200 chars). Proposer suggests a band. Student sets a number (slider, step 5). Upsert until snapshot. Flags: a second number ("consider the opposite", the blind number becomes the blend), a class prediction. Open mode: a written answer only. | Nobody; everyone, live, for a cascade question |
 | snapshot | Blind price computed, groups formed by belief disparity. Clusterer runs out of band. Teacher may **Reveal** the blind price to the class. | Teacher; class only after Reveal |
 | structured | Turn timer per group, least sure speaks first. Speaker index is computed from the clock. | Teacher (and class if revealed) |
 | open | Students revise; every revision is a logged trade. | Everyone, live |
-| resolved | STEM: answer known from creation, scores computed. Humanities: freeze; distribution and clusters are the output. | Everyone |
+| resolved | STEM: answer known from creation, scores computed (plus contrarian credit and SP insight, always computed, surfaced by flag). Humanities: freeze; distribution and clusters are the output. Open mode: reached straight from snapshot; the sharpened proposition is the output. | Everyone |
 
 - **Phases advance lazily**: every view read past `phase_ends_at` + 2 s advances the question. No conductor tab. Teacher buttons for the untimed steps and for skipping ahead.
 - All transition work is a pure function of the submissions and happens **before** the phase flip (`where phase = from`), so re-runs are safe.
 - STEM questions never auto-resolve without an answer (the migration requires one at creation).
 - Group sizes: 3, with remainders as 4s and one group of 5 for a class of 5. Never 2.
+- **No new phases for §17.** Every extension screen is a sub-step inside an existing phase, decided server-side from submission state (`my.blindStep`, `my.steelmanSide`), so a phone refresh restores it. An open question (`mode = 'open'`, use `isOpenQuestion()`) goes `blind → snapshot → resolved` with no price, no groups, no timer after blind.
+- Every transition appends to `questions.phase_log`; the arc and replay read phase boundaries from it.
 
 ## Surfaces
 
-**Student (phone).** Join by code → lobby → blind entry (text, band, slider) → "reading the room…" → group and turn timer → revise with the live price → result (calibration before/after, persuasion, leaderboard top). Mobile-first, max width ~28rem.
+**Student (phone).** Join by code → lobby → blind entry (text, band, slider) → "reading the room…" → group and turn timer → revise with the live price → result (calibration before/after, persuasion, leaderboard top). Mobile-first, max width ~28rem. With flags on, each screen gains a sub-step and nothing else: blind entry becomes first number → "Consider the opposite" → done (`considerOpposite`), plus a "Predict the class" slider (`predictClass`); a cascade question shows the live consensus above the slider; "Steelman the other side" sits under the waiting card and above the group card (`steelman`); the group card shows "Socrates asks" during each turn (`socrates`); the result gains steelman / contrarian tiles, the surprisingly popular line, and the anonymous argument duel (`argumentElo`). An open question renders a free-text answer box, then a thanks card. Never another student's number, a participant id, a vote count, or wealth.
 
-**Teacher (desktop).** Join code + QR, participant list, question list with Start, one control per phase (End blind / Reveal / Start debate / Open / Resolve), blind and live price, blind-vs-current histogram, argument clusters (label + count), groups, belief map (blind, post, outcome, movement, reading), leaderboard, realtime status line. Projector view at `/t/[id]/present` reads the token from localStorage, never the URL.
+**Teacher (desktop).** Join code + QR, participant list, question list with Start (plus "Run again with the consensus visible" and "Generate from topic"), Session settings card (one checkbox per flag, shown between questions), one control per phase (End blind / Reveal / Start debate / Open / Resolve; open mode: End answers / Run clustering / Sharpen into a proposition / Finish open question; "Prepare Socrates" when flagged), blind and live price, blind-vs-current histogram, argument clusters (label + count), groups (with their Socrates questions), belief map (blind, post, outcome, movement, reading; "from Q2" and "consensus visible" badges), cascade comparison card, Socratic arc card (live from `open`, any resolved question, with a 20 s replay), top arguments by pairwise strength, flag stats (considered the opposite, surprisingly popular, steelman), leaderboard, realtime status line. Projector view at `/t/[id]/present` reads the token from localStorage, never the URL; it adds the cascade side-by-side after Reveal, open-mode cluster labels, and the arc at resolved.
 
 Belief-map readings: ~50% → "Genuine uncertainty. Teach it."; ≥ 80% and wrong → "Shared misconception."; ≥ 80% and right → "Skip it."; movement ≥ 15 points → "The debate worked."
 
@@ -150,6 +155,7 @@ Next.js 16 notes: route and page `params` are Promises; `LayoutProps`/`PageProps
 - Group size 3 (4s for remainders, 5 for a class of 5). Never 2.
 - Teacher token travels in the `x-teacher-token` header. Student identity is `participantId` in the body.
 - localStorage keys: `agora:p:<CODE>`, `agora:t:<sessionId>`.
+- Feature flags (`sessions.features`, all off by default, toggled from the dashboard between questions): `considerOpposite`, `predictClass`, `steelman`, `socrates`, `contrarianCredit`, `argumentElo`. Cascade is per question (`cascade`); the open question is a mode, not a flag. With every flag off the P0 path is unchanged.
 
 ## Demo constraints
 

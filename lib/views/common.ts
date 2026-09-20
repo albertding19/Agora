@@ -14,12 +14,21 @@ export function phaseAtLeast(phase: Phase, floor: Phase): boolean {
   return phaseIndex(phase) >= phaseIndex(floor)
 }
 
+/** One decimal; null passes through so nullable columns can be rounded in place. */
+export function round1(v: number): number
+export function round1(v: number | null): number | null
 export function round1(v: number | null): number | null {
   return v === null ? null : roundPct(v, 1)
 }
 
-function mean(xs: number[]): number | null {
+/** Arithmetic mean, or null for an empty list (so "no data" never reads as 0). */
+export function mean(xs: readonly number[]): number | null {
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
+}
+
+/** `part` as a percent of `whole`, one decimal; null when `whole` is 0. Aggregates only. */
+export function pctOf(part: number, whole: number): number | null {
+  return whole > 0 ? round1((100 * part) / whole) : null
 }
 
 function push(map: Map<string, number[]>, key: string, value: number | null): void {

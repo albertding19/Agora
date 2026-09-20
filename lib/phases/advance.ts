@@ -14,8 +14,9 @@ import {
   autoAdvanceTarget,
   computeResolution,
   computeSnapshot,
+  isOpenQuestion,
   largestGroupSize,
-  nextPhase,
+  transitionTarget,
   type SubmissionState,
 } from './machine'
 
@@ -28,7 +29,12 @@ export function timersOf(session: SessionRow): Timers {
 }
 
 export function toStates(rows: readonly SubmissionRow[]): SubmissionState[] {
-  return rows.map((s) => ({ participantId: s.participant_id, blindPct: s.blind_pct, currentPct: s.current_pct }))
+  return rows.map((s) => ({
+    participantId: s.participant_id,
+    blindPct: s.blind_pct,
+    currentPct: s.current_pct,
+    predictedTruePct: s.predicted_true_pct,
+  }))
 }
 
 /** Liquidity for a question; falls back to the class-size rule if the row predates start. */
@@ -95,7 +101,7 @@ export async function advance(
   if (question.phase !== from) {
     throw new HttpError(409, 'phase_mismatch', `Question is in ${question.phase}, not ${from}`)
   }
-  const to = nextPhase(from)
+  const to = transitionTarget(from, question.mode)
   if (!to) throw new HttpError(409, 'already_resolved', 'Question is already resolved')
 
   const fields: Parameters<typeof q.updateQuestion>[2] = {
@@ -110,24 +116,39 @@ export async function advance(
   }
 
   if (from === 'blind') {
-    const participants = await q.listParticipants(client, session.id)
-    const submissions = await q.listSubmissions(client, question.id)
-    const b = questionLiquidity(question, session, participants.length)
-    const snapshot = computeSnapshot({
-      participantIds: participants.map((p) => p.id),
-      submissions: toStates(submissions),
-      budget: session.budget,
-      b,
-    })
-    await q.upsertGroups(client, question.id, snapshot.groups)
-    fields.blind_price_pct = snapshot.blindPricePct
-    fields.phase_ends_at = null
+    if (isOpenQuestion(question)) {
+      // Free text only (plan §17.3): nothing to price, nobody to group.
+      fields.blind_price_pct = null
+      fields.phase_ends_at = null
+    } else {
+      const participants = await q.listParticipants(client, session.id)
+      const submissions = await q.listSubmissions(client, question.id)
+      const b = questionLiquidity(question, session, participants.length)
+      const snapshot = computeSnapshot({
+        participantIds: participants.map((p) => p.id),
+        submissions: toStates(submissions),
+        budget: session.budget,
+        b,
+      })
+      await q.upsertGroups(client, question.id, snapshot.groups)
+      fields.blind_price_pct = snapshot.blindPricePct
+      fields.sp_actual_true_pct = snapshot.surprisinglyPopular.actualTruePct
+      fields.sp_predicted_true_pct = snapshot.surprisinglyPopular.predictedTruePct
+      fields.sp_answer = snapshot.surprisinglyPopular.answer
+      fields.phase_ends_at = null
+    }
   }
 
   if (from === 'snapshot') {
-    const groups = await q.listGroups(client, question.id)
-    const largest = largestGroupSize(groups.map((g) => ({ turnOrder: g.turn_order })))
-    fields.phase_ends_at = plusSeconds(now, session.turn_seconds * largest)
+    if (isOpenQuestion(question)) {
+      // No debate: `to` is already 'resolved' (transitionTarget). The clusters are the output.
+      fields.phase_ends_at = null
+      fields.post_price_pct = null
+    } else {
+      const groups = await q.listGroups(client, question.id)
+      const largest = largestGroupSize(groups.map((g) => ({ turnOrder: g.turn_order })))
+      fields.phase_ends_at = plusSeconds(now, session.turn_seconds * largest)
+    }
   }
 
   if (from === 'structured') {
@@ -163,6 +184,8 @@ export async function advance(
           calibration_final: r.calibrationFinal,
           calibration_blind: r.calibrationBlind,
           persuasion: r.persuasion,
+          sp_insight: r.spInsight,
+          contrarian_bonus: r.contrarianBonus,
         },
       })),
     )
@@ -221,6 +244,9 @@ export async function recomputeSnapshot(
   if (question.phase !== 'snapshot') {
     throw new HttpError(409, 'not_in_snapshot', 'Snapshot can only be recomputed during the snapshot phase')
   }
+  if (isOpenQuestion(question)) {
+    throw new HttpError(409, 'open_mode', 'An open question has no blind price or groups to recompute')
+  }
   const participants = await q.listParticipants(client, session.id)
   const submissions = await q.listSubmissions(client, question.id)
   const b = questionLiquidity(question, session, participants.length)
@@ -231,7 +257,12 @@ export async function recomputeSnapshot(
     b,
   })
   await q.upsertGroups(client, question.id, snapshot.groups)
-  const updated = await q.updateQuestion(client, question.id, { blind_price_pct: snapshot.blindPricePct })
+  const updated = await q.updateQuestion(client, question.id, {
+    blind_price_pct: snapshot.blindPricePct,
+    sp_actual_true_pct: snapshot.surprisinglyPopular.actualTruePct,
+    sp_predicted_true_pct: snapshot.surprisinglyPopular.predictedTruePct,
+    sp_answer: snapshot.surprisinglyPopular.answer,
+  })
   await q.bumpTick(client, session.id)
   return updated ?? question
 }

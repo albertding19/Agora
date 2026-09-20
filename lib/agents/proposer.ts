@@ -55,7 +55,7 @@ const RawProposal = z.object({
  *  - reading truncated to 140 chars; replaced if empty or it breaks the language rule
  * Returns null only if the raw shape is unusable.
  */
-export function normalizeProposal(raw: unknown, _input?: ProposerInput): Band | null {
+export function normalizeProposal(raw: unknown): Band | null {
   const parsed = RawProposal.safeParse(raw)
   if (!parsed.success) return null
   const { stance } = parsed.data

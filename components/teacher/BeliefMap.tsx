@@ -1,5 +1,17 @@
 import { fmtPct } from '@/components/shared/PriceDisplay'
+import { Badge } from '@/components/ui/badge'
+import { openQuestionReading } from '@/lib/scoring/reading'
 import type { TeacherQuestionRow } from '@/lib/types'
+
+function answerCell(r: TeacherQuestionRow): string {
+  if (r.mode === 'open') return 'free text'
+  if (r.mode === 'humanities') {
+    // Surprisingly popular (plan §17.2) is the humanities "winner" once computed.
+    return r.spAnswer === null ? 'no answer' : `no answer · SP ${r.spAnswer ? 'TRUE' : 'FALSE'}`
+  }
+  if (r.correctAnswer === null) return '—'
+  return r.correctAnswer ? 'TRUE' : 'FALSE'
+}
 
 /** One row per question: blind price, post-debate price, outcome, movement, reading. */
 export function BeliefMap({ rows }: { rows: TeacherQuestionRow[] }) {
@@ -22,24 +34,23 @@ export function BeliefMap({ rows }: { rows: TeacherQuestionRow[] }) {
           {rows.map((r) => (
             <tr key={r.id} className="border-t border-border align-top">
               <td className="py-1 pr-2 tabular-nums">{r.index + 1}</td>
-              <td className="py-1 pr-2 max-w-md">{r.proposition}</td>
+              <td className="py-1 pr-2 max-w-md">
+                {r.sourceIndex !== null && <span className="text-muted-foreground">from Q{r.sourceIndex + 1} · </span>}
+                {r.proposition}
+                {r.cascade && (
+                  <>
+                    {' '}
+                    <Badge variant="outline">consensus visible</Badge>
+                  </>
+                )}
+              </td>
               <td className="py-1 pr-2 tabular-nums">{fmtPct(r.blindPricePct)}</td>
               <td className="py-1 pr-2 tabular-nums">{fmtPct(r.postPricePct)}</td>
-              <td className="py-1 pr-2">
-                {r.mode === 'open'
-                  ? 'free text'
-                  : r.mode === 'humanities'
-                    ? 'no answer'
-                    : r.correctAnswer === null
-                      ? '—'
-                      : r.correctAnswer
-                        ? 'TRUE'
-                        : 'FALSE'}
-              </td>
+              <td className="py-1 pr-2">{answerCell(r)}</td>
               <td className="py-1 pr-2 tabular-nums">
                 {r.movementPct === null ? '—' : `${r.movementPct > 0 ? '+' : ''}${r.movementPct.toFixed(0)}`}
               </td>
-              <td className="py-1">{r.reading ?? '—'}</td>
+              <td className="py-1">{r.reading ?? (r.mode === 'open' ? openQuestionReading(r.clusterCount) : '—')}</td>
             </tr>
           ))}
         </tbody>

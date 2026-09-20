@@ -22,6 +22,17 @@ export function GroupAndTurns({ view, myName }: { view: StudentView; myName: str
   const done = group !== null && idx !== null && idx >= group.turnOrder.length
   const speaker = group && idx !== null && !done ? group.turnOrder[idx] : null
 
+  // Socrates agent (plan §17.4): one question per speaker, shown during that
+  // speaker's turn only, and only while the session flag is on (the route is
+  // not flag-gated, so the phone must be). `speakerIndex` can exceed the
+  // group size once the turns are over, so the array is only indexed while
+  // `!done`.
+  const socratesQuestion = (() => {
+    if (!view.features.socrates || !group || idx === null || done) return null
+    const q = group.socratesQuestions?.[idx]
+    return typeof q === 'string' && q.trim().length > 0 ? q : null
+  })()
+
   return (
     <Card>
       <CardHeader>
@@ -48,6 +59,12 @@ export function GroupAndTurns({ view, myName }: { view: StudentView; myName: str
                 <div className="mt-1 font-mono text-lg tabular-nums">
                   {secondsLeftInTurn === null ? '' : `${secondsLeftInTurn}s`}
                 </div>
+              </div>
+            )}
+            {socratesQuestion !== null && (
+              <div className="rounded-lg border border-border p-3">
+                <div className="text-xs text-muted-foreground">Socrates asks</div>
+                <p className="mt-1 text-sm leading-snug">{socratesQuestion}</p>
               </div>
             )}
             <ol className="flex flex-col gap-1 text-sm">

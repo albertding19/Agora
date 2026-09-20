@@ -44,7 +44,7 @@ Ids are `uuid`. Beliefs are integer percent 0–100 in steps of 5 (`*_pct`). Pri
 | `participants` | Students | The teacher is not a participant. |
 | `questions` | One market each | `phase`, `phase_started_at`, `phase_ends_at`, `liquidity_b` and `n_at_start` (set when the question starts), `blind_price_pct`, `post_price_pct`, `blind_revealed`. STEM questions must carry `correct_answer` (check constraint). `mode` is `stem`, `humanities`, or `open` (free text, plan §17.3). 0002 adds `reference_answer`, `source_question_id`, `cascade_mode`, `phase_log` (jsonb `[{ phase, at }]`, appended by every transition), `sp_actual_true_pct`, `sp_predicted_true_pct`, `sp_answer`. No market quantities are stored. |
 | `submissions` | One per student per question | `reasoning`, `ai_*` band, `blind_pct`, `current_pct`, `final_pct`, `group_id`, `cluster_index`, scores. `blind_pct` null means the student never submitted in the blind phase. 0002 adds `first_pct`, `opposite_pct`, `opposite_reasoning` (§17.1), `predicted_true_pct`, `sp_insight` (§17.2), `steelman_text`, `steelman_score`, `steelman_note` (§17.7), `contrarian_bonus` (§17.9a); `blind_pct` stays the number the engine reads. |
-| `trades` | Open-phase revisions | `pct_before/after`, `price_before/after_pct`. Price history = the blind price plus these rows. |
+| `trades` | Open-phase revisions | `pct_before/after`, `price_before/after_pct`. Price history = the blind price plus these rows. A cascade question (§17.5, `cascade_mode`) also logs every blind-phase submission here with `phase = 'blind'`. |
 | `groups` | Debate groups | `turn_order uuid[]` is also the member list. Upserted on `(question_id, idx)`. 0002 adds `socratic_questions text[]` (§17.4). |
 | `clusters` | Argument clusters | `label`, `member_ids`. Written out of band by the cluster route. |
 | `agent_runs` | Agent cache and log | Keyed by `(agent, version, input_hash)`. |
@@ -86,7 +86,14 @@ Tests: `lib/market/market.test.ts` pins the four calibration numbers above, anti
 
 - **Calibration** `= 100 · (1 − (p − y)²)`, computed for the final number (shown) and the blind number (shown as "before debate").
 - **Persuasion** (STEM only), per student `i` in a group: for each other submitter `j`, `move_j = (final_j − blind_j)` signed toward the truth; `m = mean(move_j)` in points. `i` is *credited* when their blind number was at least as close to the truth as the group's mean blind distance, so a unanimously wrong group still has a persuader. Credited: `m`. Otherwise `min(0, m)`, the penalty only. Null for non-submitters, groups with fewer than two submitters, and humanities.
-- **Leaderboard**: calibration desc, then persuasion desc, nulls last. Never wealth.
+- **Leaderboard**: `calibration + (contrarian ?? 0)` desc, then persuasion desc, then steelman fidelity desc, nulls last, then name. The displayed calibration column stays the pure Brier number. Never wealth.
+- **Consider the opposite** (§17.1, `blend.ts`): `blind_pct = blendPct(first_pct, opposite_pct)`, the mean snapped to a multiple of 5 with a .5 rounding toward 50; `(60, null) → 60`.
+- **Surprisingly popular** (§17.2, `surprisinglyPopular.ts`): `lean(pct)` is TRUE above 50, FALSE below, null at 50; `actualTruePct` over leaners, `predictedTruePct` the mean prediction (null below 3 predictions); `answer = actual > predicted` (null on a tie or missing side). `spInsight` = own lean equals the reference (outcome on STEM, `sp_answer` on humanities) and the expected majority differs from it.
+- **Contrarian credit** (§17.9a, `contrarian.ts`): `min(25, round(0.5 · |blindPrice − 50|))` when the crowd's lean is wrong and the student's is right, else 0; null when not scoreable. Always computed; surfaced only with the flag.
+- **Steelman fidelity** (§17.7): the agent's 0–100 grade of `steelman_text`, mean per student over resolved STEM questions; the third ranking key. Side = `steelmanSideFor(blind_pct)` (FALSE above 50, TRUE below, EITHER at 50 or no number), never stored.
+- **Cascade** (§17.5, `cascade.ts`): `findCascadePair` matches a cascade question to the blind run of the same proposition; `cascadeReading` names the gap (≥ 10 toward the majority = herding, a dynamic of the room).
+- **Price history / arc** (§17.6, `priceHistory.ts`, `arc.ts`, `replay.ts`): `priceHistoryPoints` builds the trajectory from `phase_log` and trades (cascade: 50 then blind trades; snapshot anchor; open anchor; one point per open trade; resolved point); `arcX` / `arcBands` / `describeArc` drive the chart and its sentence; `replayRevealCount` / `replaySummary` drive the 20 s replay.
+- **Argument Elo** (§17.9b, `bradleyTerry.ts`, `argumentPairs.ts`): Hunter's MM Bradley–Terry with a fixed reference item (unbeaten items stay finite; `winPct = 100·π/(π+1)`); `selectArgumentPairs` is seeded per `(question, voter)`, excludes the voter's own argument, prefers opposite blind leans, skips compared pairs.
 - **Belief-map reading** (`reading.ts`): "Genuine uncertainty. Teach it." below 60% confidence; "Shared misconception." at ≥ 80% and wrong; "Skip it." at ≥ 80% and right; plus "The debate worked." when the post-debate price moved ≥ 15 points, else "The debate didn't."
 - **Histogram**: ten bins, 0–9 … 90–100.
 
@@ -97,17 +104,19 @@ Stored phases: `pending → blind → snapshot → structured → open → resol
 | Transition | Trigger | Work, done **before** the flip | Timer |
 |---|---|---|---|
 | `pending → blind` | Teacher Start (previous question resolved) | `n_at_start`, `liquidity_b`, `current_question_id` | `blind_seconds` |
-| `blind → snapshot` | Lazy (any view read past `phase_ends_at` + 2 s) or teacher | blind price; groups by disparity; groups upserted; `submissions.group_id` | none |
-| `snapshot → structured` | Teacher Start debate | nothing | `turn_seconds × largest group` |
+| `blind → snapshot` | Lazy (any view read past `phase_ends_at` + 2 s) or teacher | blind price; groups by disparity; groups upserted; `submissions.group_id`; `sp_actual_true_pct` / `sp_predicted_true_pct` / `sp_answer` (§17.2). Open mode (§17.3): no price, no groups. | none |
+| `snapshot → structured` | Teacher Start debate | nothing. Open mode goes `snapshot → resolved` instead (`transitionTarget`), with no timer. | `turn_seconds × largest group` |
 | `structured → open` | Lazy or teacher | nothing | `open_seconds` |
-| `open → resolved` | Lazy or teacher Resolve | finals, post price, calibration, persuasion. STEM without an answer never auto-resolves. | none |
+| `open → resolved` | Lazy or teacher Resolve | finals, post price, calibration, persuasion, `contrarian_bonus` (§17.9a), `sp_insight` (§17.2). STEM without an answer never auto-resolves. | none |
 
 - `advance(from)` does the work, then flips with `where phase = from`. Zero rows updated means another caller won; discard. Concurrent callers compute identical results.
 - **Lazy advance**: both view builders call `maybeAdvance` first. With 2 s polling from every client, timed phases advance within ~2 s of the deadline with no conductor tab. A GET with a side effect is accepted for the hackathon.
 - **Clusterer runs out of band**: the dashboard calls `POST /api/questions/:id/cluster` when it sees `snapshot` and shows a spinner. Pairing at P0 ignores clusters.
 - **Turn timer**: speaker index = `floor((now − phase_started_at) / turn_seconds)` into `turn_order`. No server state.
 - **Clock sync**: every view carries `serverTime`; clients keep an offset and render countdowns from it.
-- **Recompute snapshot** is allowed only while `phase = snapshot`.
+- **Recompute snapshot** is allowed only while `phase = snapshot`, never for an open question (409 `open_mode`).
+- **Phase log**: `startQuestion` writes `phase_log = [{ phase: 'blind', at }]` and every transition appends `{ phase: to, at }` before the guarded flip; `phaseLogAt(log, phase)` reads it. `autoAdvanceTarget` returns null for an open-mode question in any timed phase other than blind.
+- **Out-of-band agent work** (cluster, sharpen, socrates, steelman) never runs inside a transition.
 
 ## 7. Pairing (`lib/pairing/pair.ts`)
 
@@ -123,11 +132,14 @@ Sizes: `k = floor(N/3)`; remainder 1 → one group of 4; remainder 2 → two gro
 
 | Phase | Student / projector | Teacher dashboard |
 |---|---|---|
-| blind | proposition, own text, band, number | submission count |
-| snapshot | "reading the room…"; blind price only if `blind_revealed` | blind price, histogram, groups, clusters when ready, Reveal |
-| structured | own group, speaker, turn countdown | same + all groups |
-| open | live price, own number (revisable) | live price, price history, histogram blind vs current |
-| resolved | outcome, calibration before/after, persuasion, leaderboard top | belief-map row, final histogram, leaderboard |
+| blind | proposition, own text, band, number; own second number (§17.1) and prediction (§17.2); the live blind price only for a cascade question (§17.5); open mode: the written answer only | submission count; cascade blind price; consider-the-opposite and predictor rates |
+| snapshot | "reading the room…"; blind price only if `blind_revealed`; own steelman side, text and grade (§17.7) | blind price, histogram, groups, clusters when ready, Reveal; SP answer, steelman and Socrates aggregates |
+| structured | own group, speaker, turn countdown; own group's Socrates question per turn (§17.4); steelman still open | same + all groups and their Socrates questions |
+| open | live price, own number (revisable) | live price, price history (§17.6 arc points with phase labels), histogram blind vs current |
+| resolved | outcome, calibration before/after, persuasion, leaderboard top; own SP insight, steelman fidelity, contrarian credit; anonymous argument pairs to compare (§17.9b) | belief-map row, final histogram, leaderboard, SP insight rate, top arguments by pairwise strength, cascade comparison |
+| open mode (§17.3) | no number and no price in any phase; `submitted` = wrote an answer | answer count, answer clusters, sharpen candidates; no price |
+
+Every flag-gated field is null / empty with its flag off, so the P0 view is unchanged. Argument pairs carry opaque submission ids and texts only; a vote count never leaves the server (`argumentVotersPct` is a percentage).
 
 The projector (`/t/[id]/present`) reads the teacher token from localStorage, never the URL, and shows the price only when `blind_revealed` or the phase is open/resolved. Demo step 2 ("you were 75% confident, and wrong") is the Reveal button.
 
@@ -140,7 +152,7 @@ Teacher routes read the token from the `x-teacher-token` header (`teacher-view` 
 | `POST /api/sessions` | teacher | `{ title, budget?, k?, timers?, features? }` → `{ sessionId, code, teacherToken }` |
 | `PATCH /api/sessions/:id/features` | teacher | `FeaturesPatchBody` (only the keys sent change) → `{ ok, features }` |
 | `POST /api/sessions/:id/questions` | teacher | `{ questions: [{ proposition, mode, correctAnswer?, cascade?, referenceAnswer?, sourceQuestionId? }] }` (answer required for STEM; reference answer stored for `open` only) |
-| `POST /api/sessions/:id/generate` | teacher | P1 stub (501) |
+| `POST /api/sessions/:id/generate` | teacher | `{ topic }` → `CandidatesResult` (§17.3; five propositions from a topic) |
 | `POST /api/join` | student | `{ code, displayName }` → `{ sessionId, participantId }` |
 | `GET /api/sessions/:id/view?participantId=` | student | `StudentView` (runs `maybeAdvance`) |
 | `GET /api/sessions/:id/teacher-view` | teacher, projector | `TeacherView` (runs `maybeAdvance`) |
@@ -148,27 +160,21 @@ Teacher routes read the token from the `x-teacher-token` header (`teacher-view` 
 | `POST /api/questions/:id/advance` | teacher | `{ from, correctAnswer? }` |
 | `POST /api/questions/:id/reveal` | teacher | sets `blind_revealed` |
 | `POST /api/questions/:id/cluster` | teacher | runs the clusterer, writes `clusters` |
-| `POST /api/questions/:id/recompute-snapshot` | teacher | only while `phase = snapshot` |
+| `POST /api/questions/:id/recompute-snapshot` | teacher | only while `phase = snapshot`; 409 `open_mode` for an open question |
 | `POST /api/questions/:id/propose` | student | `{ participantId, reasoning }` → `{ stance, lo, hi, reading, fallback }` |
-| `POST /api/questions/:id/submit` | student | `{ participantId, pct, reasoning?, predictedTruePct? }` (blind only, upsert; the prediction is accepted and ignored until §17.2 lands) |
+| `POST /api/questions/:id/submit` | student | `{ participantId, pct, reasoning?, predictedTruePct? }` (blind only, upsert; 409 `open_mode`). Always writes `first_pct`; with `considerOpposite` on the stored number is the blend with any kept second number. A cascade question also logs a `phase = 'blind'` trade and returns `{ ok, pricePct }` (the phone reads `view.pricePct`, not the response) |
 | `POST /api/questions/:id/revise` | student | `{ participantId, pct }` (open only) |
+| `POST /api/questions/:id/oppose` | student | `OpposeBody` → `{ ok, blindPct }` (§17.1; blind only; 409 `feature_disabled` unless `considerOpposite`, `open_mode`, `no_first_number`) |
+| `POST /api/questions/:id/answer` | student | `AnswerBody` → `{ ok }` (§17.3; writes `reasoning` only; 409 `not_open_mode`, `not_in_blind_phase`) |
+| `POST /api/questions/:id/sharpen` | teacher | `{}` → `CandidatesResult` (§17.3; 409 `not_open_mode`, `too_early`, `no_clusters`; no insert, no tick) |
+| `POST /api/questions/:id/socrates` | teacher | `{}` → `SocratesResult` (§17.4; 409 `too_early`; open mode or no groups → `{ skipped: true }`; not flag-gated, the dashboard is) |
+| `POST /api/questions/:id/steelman` | student | `SteelmanBody` → `SteelmanResult` (§17.7; 409 `feature_off`, `open_mode`, `steelman_closed` outside snapshot/structured; no tick) |
+| `POST /api/questions/:id/argument-vote` | student | `ArgumentVoteBody` → `{ ok, counted }` (§17.9b; 409 `feature_disabled`, `open_mode`, `not_resolved`, `own_argument`; 404 `argument_not_found`) |
+| `GET /api/questions/:id/history` | teacher | `QuestionHistory` (§17.6 / §17.8; no `maybeAdvance`; anonymous notes only) |
 | `GET /api/questions/:id/narrate` | teacher | P1 stub (501) |
-| `GET /api/health/agents` | ops | pre-warms every agent schema; hit at deploy and 30 min before the demo |
+| `GET /api/health/agents` | ops | pre-warms every agent (proposer, clusterer, generator, socrates, steelman); hit at deploy and 30 min before the demo |
 
-Contracts: request and view schemas in `lib/types.ts`; `lib/api.ts` is the typed client used by the UI and by `scripts/simulate.ts`.
-
-Planned routes (plan §17; `lib/api.ts` and the result schemas in `lib/types.ts` already exist, each route lands with its feature and returns 404 until then):
-
-| Method and path | Who | Body → Result |
-|---|---|---|
-| `POST /api/questions/:id/oppose` | student | `OpposeBody` → `{ ok, blindPct }` (§17.1; blind only, flag `considerOpposite`) |
-| `POST /api/questions/:id/answer` | student | `AnswerBody` → `{ ok }` (§17.3; open mode, blind only) |
-| `POST /api/questions/:id/sharpen` | teacher | `{}` → `CandidatesResult` (§17.3; open mode, after clustering) |
-| `POST /api/sessions/:id/generate` | teacher | `{ topic }` → `CandidatesResult` (§17.3; fills the 501 stub) |
-| `POST /api/questions/:id/socrates` | teacher | `{}` → `SocratesResult` (§17.4; snapshot+, flag `socrates`) |
-| `POST /api/questions/:id/steelman` | student | `SteelmanBody` → `SteelmanResult` (§17.7; snapshot/structured, flag `steelman`) |
-| `GET /api/questions/:id/history` | teacher | `QuestionHistory` (§17.6 / §17.8; no `maybeAdvance`) |
-| `POST /api/questions/:id/argument-vote` | student | `ArgumentVoteBody` → `{ ok, counted }` (§17.9b; resolved, flag `argumentElo`) |
+Contracts: request and view schemas in `lib/types.ts`; `lib/api.ts` is the typed client used by the UI and by `scripts/simulate.ts` / `scripts/seed-demo.ts`.
 
 ## 11. Agents (`lib/agents/`)
 
@@ -210,13 +216,17 @@ app/           pages (/, /join, /s/[code], /t/[id], /t/[id]/present) and api/** 
 components/    student/, teacher/, ui/ (shadcn)
 lib/
   types.ts     request + view contracts (zod)      language.ts  banned-word rule      ids.ts  codes/tokens
-  market/      position map + LMSR price           scoring/     calibration, persuasion, leaderboard, histogram, reading
-  pairing/     group formation                     phases/      machine.ts (pure) + advance.ts (DB)
-  agents/      run.ts, cache.ts, proposer.ts, clusterer.ts, __tests__/*.cases.json
+  market/      position map + LMSR price           scoring/     calibration, persuasion, leaderboard, histogram, reading,
+  pairing/     group formation                                  blend, surprisinglyPopular, contrarian, steelman, cascade,
+  phases/      machine.ts (pure) + advance.ts (DB)              priceHistory, arc, replay, bradleyTerry, argumentPairs, prng
+  agents/      run.ts, cache.ts, proposer.ts, clusterer.ts, generator.ts, socrates.ts, steelman.ts, __tests__/*.cases.json
   db/          server.ts (secret client), types.ts (rows), queries.ts
-  views/       studentView.ts, teacherView.ts      realtime/    useSessionView, clock, browser client
+  views/       studentView.ts, teacherView.ts, questionHistory.ts, common.ts
+  realtime/    useSessionView, clock, browser client            features.ts  featuresOf (pure flag parser)
   api.ts       typed HTTP client                   storage.ts   localStorage keys
-supabase/migrations/0001_init.sql
+components/student/  BlindEntry (three-step), Waiting, Steelman, GroupAndTurns, OpenRevise, Result, ArgumentDuel, OpenAnswer, OpenThanks
+components/teacher/  BeliefMap, HistogramBars, Leaderboard, SessionSettings, CascadeComparison, CandidatesPanel, ArcCard, SocraticArc, Replay, TopArguments
+supabase/migrations/0001_init.sql, 0002_extensions.sql
 scripts/       simulate.ts, agent-eval.ts, seed-demo.ts, lint-language.sh
 ```
 

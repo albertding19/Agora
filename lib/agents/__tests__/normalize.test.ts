@@ -4,79 +4,76 @@ import { FALLBACK_BAND, NEUTRAL_READING, normalizeProposal } from '../proposer'
 import { cacheKey } from '../run'
 import { BANNED_WORDS } from '@/lib/language'
 
-const input = { proposition: 'p', reasoning: 'r' }
-
 describe('normalizeProposal', () => {
   it('widens a narrow band to at least 15 points', () => {
-    const b = normalizeProposal({ stance: 'TRUE', lo: 70, hi: 80, reading: 'You sounded sure.' }, input)!
+    const b = normalizeProposal({ stance: 'TRUE', lo: 70, hi: 80, reading: 'You sounded sure.' })!
     expect(b.hi - b.lo).toBeGreaterThanOrEqual(15)
     expect(b.lo).toBeLessThanOrEqual(70)
     expect(b.hi).toBeGreaterThanOrEqual(80)
   })
 
   it('widens a zero-width band symmetrically', () => {
-    const b = normalizeProposal({ stance: 'TRUE', lo: 75, hi: 75, reading: 'x' }, input)!
+    const b = normalizeProposal({ stance: 'TRUE', lo: 75, hi: 75, reading: 'x' })!
     expect(b.lo).toBe(65)
     expect(b.hi).toBe(80)
   })
 
   it('snaps to multiples of 5 and clamps to 0-100', () => {
-    const b = normalizeProposal({ stance: 'TRUE', lo: 82, hi: 131, reading: 'x' }, input)!
+    const b = normalizeProposal({ stance: 'TRUE', lo: 82, hi: 131, reading: 'x' })!
     expect(b.lo % 5).toBe(0)
     expect(b.hi).toBe(100)
     expect(b.lo).toBeLessThanOrEqual(85)
   })
 
   it('orders lo and hi', () => {
-    const b = normalizeProposal({ stance: 'TRUE', lo: 90, hi: 60, reading: 'x' }, input)!
+    const b = normalizeProposal({ stance: 'TRUE', lo: 90, hi: 60, reading: 'x' })!
     expect(b.lo).toBe(60)
     expect(b.hi).toBe(90)
   })
 
   it('forces 40-60 for UNCLEAR', () => {
-    const b = normalizeProposal({ stance: 'UNCLEAR', lo: 10, hi: 20, reading: 'x' }, input)!
+    const b = normalizeProposal({ stance: 'UNCLEAR', lo: 10, hi: 20, reading: 'x' })!
     expect(b).toMatchObject({ stance: 'UNCLEAR', lo: 40, hi: 60 })
   })
 
   it('mirrors a FALSE stance whose band sits above 50', () => {
-    const b = normalizeProposal({ stance: 'FALSE', lo: 70, hi: 90, reading: 'x' }, input)!
+    const b = normalizeProposal({ stance: 'FALSE', lo: 70, hi: 90, reading: 'x' })!
     expect(b.stance).toBe('FALSE')
     expect(b.lo).toBe(10)
     expect(b.hi).toBe(30)
   })
 
   it('mirrors a TRUE stance whose band sits below 50', () => {
-    const b = normalizeProposal({ stance: 'TRUE', lo: 10, hi: 30, reading: 'x' }, input)!
+    const b = normalizeProposal({ stance: 'TRUE', lo: 10, hi: 30, reading: 'x' })!
     expect(b.lo).toBe(70)
     expect(b.hi).toBe(90)
   })
 
   it('truncates the reading to 140 characters', () => {
-    const b = normalizeProposal({ stance: 'TRUE', lo: 60, hi: 80, reading: 'a'.repeat(300) }, input)!
+    const b = normalizeProposal({ stance: 'TRUE', lo: 60, hi: 80, reading: 'a'.repeat(300) })!
     expect(b.reading.length).toBe(140)
   })
 
   it('replaces a reading that breaks the language rule', () => {
     const b = normalizeProposal(
       { stance: 'TRUE', lo: 60, hi: 80, reading: `You would put your chips on this and the ${BANNED_WORDS[5]} look good.` },
-      input,
     )!
     expect(b.reading).toBe(NEUTRAL_READING)
   })
 
   it('replaces an empty reading', () => {
-    const b = normalizeProposal({ stance: 'TRUE', lo: 60, hi: 80, reading: '   ' }, input)!
+    const b = normalizeProposal({ stance: 'TRUE', lo: 60, hi: 80, reading: '   ' })!
     expect(b.reading).toBe(NEUTRAL_READING)
   })
 
   it('returns null for an unusable shape', () => {
-    expect(normalizeProposal({ stance: 'MAYBE', lo: 1, hi: 2, reading: 'x' }, input)).toBeNull()
-    expect(normalizeProposal(null, input)).toBeNull()
-    expect(normalizeProposal({ stance: 'TRUE', lo: Number.NaN, hi: 2, reading: 'x' }, input)).toBeNull()
+    expect(normalizeProposal({ stance: 'MAYBE', lo: 1, hi: 2, reading: 'x' })).toBeNull()
+    expect(normalizeProposal(null)).toBeNull()
+    expect(normalizeProposal({ stance: 'TRUE', lo: Number.NaN, hi: 2, reading: 'x' })).toBeNull()
   })
 
   it('fallback band is itself a valid band', () => {
-    expect(normalizeProposal(FALLBACK_BAND, input)).toEqual(FALLBACK_BAND)
+    expect(normalizeProposal(FALLBACK_BAND)).toEqual(FALLBACK_BAND)
   })
 })
 

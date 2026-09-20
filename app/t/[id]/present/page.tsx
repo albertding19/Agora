@@ -5,9 +5,19 @@ import { Countdown } from '@/components/shared/Countdown'
 import { phaseLabel } from '@/components/shared/PhaseBadge'
 import { PriceDisplay } from '@/components/shared/PriceDisplay'
 import { HistogramBars } from '@/components/teacher/HistogramBars'
+import { SocraticArc } from '@/components/teacher/SocraticArc'
 import { createApi } from '@/lib/api'
+import { isOpenQuestion } from '@/lib/phases/machine'
 import { useSessionView } from '@/lib/realtime/useSessionView'
 import { useHydrated, useTeacherToken } from '@/lib/storage'
+import { PHASES, type Phase } from '@/lib/types'
+
+/** Minimum number of price points before the arc is worth projecting. */
+const ARC_MIN_POINTS = 3
+
+function phaseAtLeast(phase: Phase, floor: Phase): boolean {
+  return PHASES.indexOf(phase) >= PHASES.indexOf(floor)
+}
 
 /**
  * Projector view: same view model as the dashboard, no controls, and the
@@ -50,14 +60,28 @@ function Present({ sessionId, token }: { sessionId: string; token: string }) {
     )
   }
 
-  const showPrice = cur.pricePct !== null || (cur.blindRevealed && cur.blindPricePct !== null)
+  const open = isOpenQuestion(cur)
+  const row = view.questions.find((q) => q.id === cur.questionId) ?? null
+
+  // Cascade demo (plan §17.5): once the blind run was revealed, the two blind
+  // numbers side by side while the cascade run is still before its open
+  // discussion; from `open` on the live number takes the stage again.
+  const cmp = view.cascadeComparison
+  const sideBySide =
+    cmp !== null && cmp.blindRevealed && cmp.cascadeQuestionId === cur.questionId && !phaseAtLeast(cur.phase, 'open')
+
+  const showPrice = !sideBySide && (cur.pricePct !== null || (cur.blindRevealed && cur.blindPricePct !== null))
   const pct = cur.pricePct ?? (cur.blindRevealed ? cur.blindPricePct : null)
   const label =
-    cur.phase === 'open'
-      ? 'Class consensus right now: TRUE'
-      : cur.phase === 'resolved'
-        ? 'Class consensus after debate: TRUE'
-        : 'Class consensus before debate: TRUE'
+    cur.phase === 'blind'
+      ? 'Class consensus so far: TRUE'
+      : cur.phase === 'open'
+        ? 'Class consensus right now: TRUE'
+        : cur.phase === 'resolved'
+          ? 'Class consensus after debate: TRUE'
+          : 'Class consensus before debate: TRUE'
+
+  const sp = cur.surprisinglyPopular
 
   return (
     <Screen>
@@ -71,13 +95,41 @@ function Present({ sessionId, token }: { sessionId: string; token: string }) {
 
       {cur.phase === 'blind' && (
         <p className="text-3xl text-muted-foreground">
-          {cur.submissionCount} of {cur.participantCount} have answered. Nothing is shown until everyone has.
+          {cur.submissionCount} of {cur.participantCount} have answered.{' '}
+          {cur.cascade ? 'The consensus moves as they do.' : 'Nothing is shown until everyone has.'}
         </p>
+      )}
+
+      {sideBySide && cmp && (
+        <div className="flex flex-col items-center gap-6">
+          <div className="flex flex-wrap items-start justify-center gap-x-20 gap-y-6">
+            <PriceDisplay pct={cmp.blindPricePct} label="Blind: TRUE" size="xl" />
+            <PriceDisplay pct={cmp.cascadePricePct ?? cur.pricePct} label="With the consensus visible: TRUE" size="xl" />
+          </div>
+          {cmp.gapPct !== null && cmp.reading && <p className="max-w-4xl text-2xl text-muted-foreground">{cmp.reading}</p>}
+        </div>
       )}
 
       {showPrice && <PriceDisplay pct={pct} label={label} size="xl" />}
 
-      {cur.phase === 'resolved' && (
+      {open && phaseAtLeast(cur.phase, 'snapshot') && (
+        <div className="flex flex-col items-center gap-4">
+          <p className="text-3xl text-muted-foreground">
+            {cur.phase === 'resolved' ? 'The next question comes from what the class wrote.' : 'Answers are being read.'}
+          </p>
+          {cur.clusters.length > 0 && (
+            <ul className="flex flex-col gap-2 text-left text-3xl">
+              {cur.clusters.map((c) => (
+                <li key={c.index}>
+                  <span className="font-semibold tabular-nums">{c.count}</span> · {c.label}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {cur.phase === 'resolved' && !open && (
         <div className="w-full max-w-2xl text-left">
           <p className="mb-3 text-center text-3xl">
             {cur.mode === 'stem' && cur.correctAnswer !== null
@@ -85,6 +137,25 @@ function Present({ sessionId, token }: { sessionId: string; token: string }) {
               : 'No single answer. Here is the distribution.'}
           </p>
           <HistogramBars blind={cur.histogramBlind} current={cur.histogramCurrent} />
+          {sp && sp.answer !== null && (
+            <p className="mt-4 text-center text-2xl text-muted-foreground">
+              Surprisingly popular answer: {sp.answer ? 'TRUE' : 'FALSE'}.
+            </p>
+          )}
+        </div>
+      )}
+
+      {cur.phase === 'resolved' && !open && cur.priceHistory.length >= ARC_MIN_POINTS && (
+        <div className="w-full max-w-4xl">
+          <SocraticArc
+            points={cur.priceHistory}
+            phaseLog={cur.phaseLog}
+            outcome={cur.mode === 'stem' ? cur.correctAnswer : null}
+            blindPricePct={row?.blindPricePct ?? cur.blindPricePct}
+            postPricePct={row?.postPricePct ?? cur.pricePct}
+            mode={cur.mode}
+            height={320}
+          />
         </div>
       )}
 
