@@ -253,13 +253,16 @@ export async function buildTeacherView(client: SupabaseClient, session: SessionR
     }
   }
 
-  // §17.4 Socrates: ready once any group has its questions; skipped when the
-  // question can have none (no groups, or an open question) from snapshot on.
-  const socraticStatus: SocraticStatus = groups.some((g) => (g.socratic_questions?.length ?? 0) > 0)
-    ? 'ready'
-    : phaseAtLeast(phase, 'snapshot') && (groups.length === 0 || open)
-      ? 'skipped'
-      : 'none'
+  // §17.4 Socrates: ready only once every group has one question per speaker
+  // (a partial write — say a timeout halfway through the run — stays 'none',
+  // so the Prepare button re-enables); skipped when the question can have
+  // none (no groups, or an open question) from snapshot on.
+  const socraticStatus: SocraticStatus =
+    groups.length > 0 && groups.every((g) => (g.socratic_questions?.length ?? 0) === g.turn_order.length)
+      ? 'ready'
+      : phaseAtLeast(phase, 'snapshot') && (groups.length === 0 || open)
+        ? 'skipped'
+        : 'none'
 
   // §17.7 steelman gate: how many wrote one and the mean fidelity. No text.
   let steelman: NonNullable<TeacherView['current']>['steelman'] = null
@@ -273,13 +276,18 @@ export async function buildTeacherView(client: SupabaseClient, session: SessionR
   }
 
   // §17.9b argument Elo: Bradley-Terry over the phones' pairwise comparisons,
-  // top three by strength. `side` is the argument's own blind lean (an
+  // top three by strength. `side` is the lean of the number the argument was
+  // written for — the student's first number, since with consider the
+  // opposite on the blend can sit at 50 and lean neither way (an
   // aggregate-safe hint); `comparisons` is teacher-only. The voter rate is a
   // percentage of participants, never a count.
   let topArguments: TopArgument[] = []
   let argumentVotersPct: number | null = null
   if (features.argumentElo && !open && phase === 'resolved') {
     const votes = await q.listArgumentVotes(client, current.id)
+    // 0, not null, before the first comparison: the card then shows its empty
+    // state as soon as the question resolves instead of staying invisible.
+    argumentVotersPct = pctOf(new Set(votes.map((v) => v.voter_id)).size, participants.length)
     if (votes.length > 0) {
       const withText = submissions.filter((s) => hasText(s.reasoning))
       const strengths = bradleyTerry(
@@ -297,7 +305,7 @@ export async function buildTeacherView(client: SupabaseClient, session: SessionR
         .sort((x, y) => y.strength - x.strength)
         .slice(0, TOP_ARGUMENTS)
         .map(({ s, strength }) => {
-          const side = lean(s.blind_pct)
+          const side = lean(s.first_pct ?? s.blind_pct)
           return {
             text: (s.reasoning ?? '').trim(),
             strength: round1(strength),
@@ -306,7 +314,6 @@ export async function buildTeacherView(client: SupabaseClient, session: SessionR
             comparisons: comparisons.get(s.id) ?? 0,
           }
         })
-      argumentVotersPct = pctOf(new Set(votes.map((v) => v.voter_id)).size, participants.length)
     }
   }
 
@@ -339,8 +346,8 @@ export async function buildTeacherView(client: SupabaseClient, session: SessionR
         blindPct: byParticipant.get(id)?.blind_pct ?? null,
       })),
       turnOrder: g.turn_order.map((id) => nameOf.get(id) ?? 'Student'),
-      // §17.4: one question per speaker, in turn order.
-      socratesQuestions: g.socratic_questions ?? null,
+      // §17.4: one question per speaker, in turn order; null with the flag off.
+      socratesQuestions: features.socrates ? (g.socratic_questions ?? null) : null,
     })),
     priceHistory,
     narration: null,

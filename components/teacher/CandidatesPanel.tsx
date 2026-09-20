@@ -11,6 +11,12 @@ export interface CandidatesBatch {
   kind: 'sharpen' | 'topic'
   /** The open question the candidates were sharpened from; null for a topic. */
   sourceQuestionId: string | null
+  /**
+   * The source question's clusters as they were when the batch was made, to
+   * name "from cluster: …"; empty for a topic. Snapshotted so a later
+   * re-clustering cannot relabel a candidate's source.
+   */
+  clusters: readonly { index: number; label: string; count: number }[]
   result: CandidatesResult
 }
 
@@ -28,32 +34,36 @@ interface Draft {
  * Editable candidate propositions (plan §17.3). Every candidate is a draft the
  * teacher can rewrite and re-answer before "Add as next question"; a fallback
  * batch never inserts anything on its own. Mount with a `key` that changes per
- * batch so the drafts reset.
+ * batch so the drafts reset. `added` / `onAdded` let the parent remember which
+ * candidates went in, so the panel can move (current-question card → question
+ * list) without offering an added candidate again.
  */
 export function CandidatesPanel({
   batch,
-  clusters,
   sessionId,
   api,
   busy,
   run,
+  added = [],
+  onAdded,
 }: {
   batch: CandidatesBatch
-  /** The source question's clusters, to name "from cluster: …"; empty for a topic batch. */
-  clusters: readonly { index: number; label: string; count: number }[]
   sessionId: string
   api: Api
   busy: string | null
   run: RunAction
+  /** Indexes of candidates already added as questions. */
+  added?: readonly number[]
+  onAdded?: (index: number) => void
 }) {
   const uid = useId()
   const [drafts, setDrafts] = useState<Draft[]>(() =>
-    batch.result.candidates.map((c) => ({
+    batch.result.candidates.map((c, i) => ({
       text: c.text,
       correctAnswer: c.correctAnswer,
       misconception: c.misconception,
       sourceClusterIndex: c.sourceClusterIndex,
-      added: false,
+      added: added.includes(i),
     })),
   )
 
@@ -61,7 +71,7 @@ export function CandidatesPanel({
     setDrafts((prev) => prev.map((d, j) => (j === i ? { ...d, ...p } : d)))
 
   const clusterLabel = (idx: number): string => {
-    const c = clusters.find((cl) => cl.index === idx)
+    const c = batch.clusters.find((cl) => cl.index === idx)
     return c ? `${c.label} (${c.count})` : `#${idx + 1}`
   }
 
@@ -140,6 +150,7 @@ export function CandidatesPanel({
                         ],
                       })
                       patch(i, { added: true })
+                      onAdded?.(i)
                     })
                   }
                 >

@@ -26,20 +26,24 @@ interface Graded {
   fallback: boolean
 }
 
-function sideLine(side: SteelmanSide): string {
+function sideLine(side: SteelmanSide, submitted: boolean): string {
   switch (side) {
     case 'FALSE':
       return 'Make the best case that the proposition is FALSE.'
     case 'TRUE':
       return 'Make the best case that the proposition is TRUE.'
     case 'EITHER':
-      return 'You sat at 50. Make the best case for one side, your pick.'
+      // EITHER is a number at exactly 50 or no number at all.
+      return submitted
+        ? 'You sat at 50. Make the best case for one side, your pick.'
+        : "You didn't set a number. Make the best case for one side, your pick."
   }
 }
 
 export function Steelman({ view, api, participantId }: { view: StudentView; api: Api; participantId: string }) {
   const question = view.question
   const side = view.my?.steelmanSide ?? null
+  const submitted = view.my?.submitted ?? false
   const initial = view.my?.steelman ?? null
   const [text, setText] = useState(initial?.text ?? '')
   const [graded, setGraded] = useState<Graded | null>(
@@ -74,7 +78,7 @@ export function Steelman({ view, api, participantId }: { view: StudentView; api:
         <CardTitle>Steelman the other side</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <p className="text-sm">{sideLine(side)}</p>
+        <p className="text-sm">{sideLine(side, submitted)}</p>
 
         <div className="flex flex-col gap-2">
           <Textarea

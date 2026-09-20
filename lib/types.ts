@@ -274,6 +274,12 @@ export const SocratesResult = z.object({
   ok: z.literal(true),
   skipped: z.boolean(),
   fallbackCount: z.number().int(),
+  /**
+   * Groups still without questions when the route returned: their turn order
+   * changed under the run (a snapshot recompute) twice over. The dashboard's
+   * status stays 'none' for them, so Prepare Socrates can be pressed again.
+   */
+  stale: z.number().int().default(0),
   groups: z.array(z.object({ index: z.number().int(), questions: z.array(z.string()) })),
 })
 export type SocratesResult = z.infer<typeof SocratesResult>

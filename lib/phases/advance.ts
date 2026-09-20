@@ -34,6 +34,8 @@ export function toStates(rows: readonly SubmissionRow[]): SubmissionState[] {
     blindPct: s.blind_pct,
     currentPct: s.current_pct,
     predictedTruePct: s.predicted_true_pct,
+    // The first number is always written by `submit`; rows that predate it fall back to the engine number.
+    firstPct: s.first_pct ?? s.blind_pct,
   }))
 }
 
@@ -256,6 +258,21 @@ export async function recomputeSnapshot(
     budget: session.budget,
     b,
   })
+  // Socrates questions (plan §17.4) are composed per turn order, and a late
+  // join can change the grouping below, so drop them before the rewrite:
+  // old order with no questions is harmless for a poll, new order with the
+  // old questions shows a speaker a question written for someone else. The
+  // status falls back to 'none' so the dashboard can prepare them again.
+  // Only here, never in the blind → snapshot transition: a lazy re-run of that
+  // block after the guarded flip must not wipe questions already generated.
+  const { error: clearErr } = await client
+    .from('groups')
+    .update({ socratic_questions: null })
+    .eq('question_id', question.id)
+  if (clearErr) {
+    console.error('db: clear socratic questions failed:', clearErr.message, clearErr.details ?? '')
+    throw new HttpError(500, 'db_error', 'clear socratic questions failed')
+  }
   await q.upsertGroups(client, question.id, snapshot.groups)
   const updated = await q.updateQuestion(client, question.id, {
     blind_price_pct: snapshot.blindPricePct,

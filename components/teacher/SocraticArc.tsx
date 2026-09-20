@@ -101,6 +101,16 @@ export function SocraticArc({
       ? `resolved: ${outcome ? 'TRUE' : 'FALSE'}`
       : `resolved: ${Math.round(resolvedY ?? 0)}%`
 
+  // The sentence under the chart sees only what the line shows, so a replay
+  // never spoils its ending: the blind number waits for the snapshot point,
+  // the ending waits for the resolved point.
+  const replaying = revealUpTo !== undefined
+  const captionPoints = replaying ? history.slice(0, revealUpTo) : history
+  const captionBlind = !replaying || snapIdx < 0 || revealed(snapIdx) ? blindPricePct : null
+  const captionPost =
+    !replaying || (resolvedIdx >= 0 ? revealed(resolvedIdx) : revealUpTo >= history.length) ? postPricePct : null
+  const caption = describeArc({ points: captionPoints, blindPricePct: captionBlind, postPricePct: captionPost, outcome, mode })
+
   const fmtX = (v: number): string => (layout.xMode === 'time' ? `${Math.round(v)}s` : `${v}`)
   const fmtTooltipLabel = (label: unknown): string =>
     layout.xMode === 'time' ? `${Math.round(Number(label))} s in` : `point ${Number(label) + 1}`
@@ -208,9 +218,7 @@ export function SocraticArc({
           />
         </LineChart>
       </ResponsiveContainer>
-      <p className="text-sm text-muted-foreground">
-        {describeArc({ points: history, blindPricePct, postPricePct, outcome, mode })}
-      </p>
+      <p className="text-sm text-muted-foreground">{caption}</p>
     </div>
   )
 }

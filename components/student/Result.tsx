@@ -47,17 +47,28 @@ export function Result({
   const outcome = r?.outcome ?? null
   const noSingleAnswer = mode === 'humanities' || outcome === null
 
+  // Calibration, persuasion and contrarian credit need an answer key, so they
+  // are STEM-only. The steelman (§17.7) was graded and shown live during the
+  // debate, so a humanities question keeps its tile when one was written.
+  const stem = mode !== 'humanities'
   const tiles: Tile[] = r
     ? [
-        { key: 'calibration', value: fmt(r.calibrationFinal), label: 'calibration' },
-        { key: 'before', value: fmt(r.calibrationBlind), label: 'before debate' },
-        { key: 'persuasion', value: fmtSigned(r.persuasion), label: 'persuasion' },
-        ...(view.features.steelman ? [{ key: 'steelman', value: fmt(r.steelman), label: 'steelman' }] : []),
-        ...(view.features.contrarianCredit
+        ...(stem
+          ? [
+              { key: 'calibration', value: fmt(r.calibrationFinal), label: 'calibration' },
+              { key: 'before', value: fmt(r.calibrationBlind), label: 'before debate' },
+              { key: 'persuasion', value: fmtSigned(r.persuasion), label: 'persuasion' },
+            ]
+          : []),
+        ...(view.features.steelman && (stem || r.steelman !== null)
+          ? [{ key: 'steelman', value: fmt(r.steelman), label: 'steelman' }]
+          : []),
+        ...(view.features.contrarianCredit && stem
           ? [{ key: 'contrarian', value: fmtPlus(r.contrarianBonus), label: 'contrarian credit' }]
           : []),
       ]
     : []
+  const tileCols = tiles.length === 1 ? 'grid-cols-1' : tiles.length > 3 ? 'grid-cols-2' : 'grid-cols-3'
 
   const sp = r?.surprisinglyPopular ?? null
   const spWord = sp && sp.answer !== null ? (sp.answer ? 'TRUE' : 'FALSE') : null
@@ -73,8 +84,8 @@ export function Result({
       <CardContent className="flex flex-col gap-5">
         <p className="text-muted-foreground">{view.question?.proposition}</p>
         <PriceDisplay pct={view.pricePct} label="Class consensus after debate: TRUE" />
-        {r && mode !== 'humanities' && (
-          <div className={`grid gap-2 text-center ${tiles.length > 3 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+        {tiles.length > 0 && (
+          <div className={`grid gap-2 text-center ${tileCols}`}>
             {tiles.map((tile) => (
               <div key={tile.key} className="rounded-lg bg-muted p-3">
                 <div className="text-2xl font-semibold tabular-nums">{tile.value}</div>
@@ -102,10 +113,12 @@ export function Result({
                     The class expected {sp.predictedTruePct.toFixed(0)}% to say TRUE; {sp.actualTruePct.toFixed(0)}% did.
                   </p>
                 )}
-                {sp.insight === true && (
-                  <p>You knew something the crowd didn&apos;t: you were right and expected most of the class to disagree.</p>
-                )}
               </>
+            )}
+            {/* On STEM the insight is referenced to the outcome, not the SP answer, so it
+                stands even when too few predictions came in for an SP answer. */}
+            {sp.insight === true && (
+              <p>You knew something the crowd didn&apos;t: you were right and expected most of the class to disagree.</p>
             )}
           </div>
         )}

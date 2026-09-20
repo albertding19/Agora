@@ -25,8 +25,13 @@ export function lean(pct: number | null | undefined): boolean | null {
 }
 
 export interface SpInput {
-  /** The student's blind number, or null when they never submitted one. */
-  blindPct: number | null | undefined
+  /**
+   * The number the student leans by: their own first number when consider
+   * the opposite is on (the blend of two mirror numbers sits at exactly 50
+   * and leans neither way, and the class prediction is made alongside the
+   * first number), else their blind number; null when they never gave one.
+   */
+  ownPct: number | null | undefined
   /**
    * The student's prediction of the percent of the class leaning TRUE.
    * Missing (`null`, `undefined`, or non-finite) predictions are skipped, so an
@@ -50,7 +55,7 @@ export function surprisinglyPopular(rows: readonly SpInput[]): SpResult {
   let predictionSum = 0
   let predictionCount = 0
   for (const row of rows) {
-    const side = lean(row.blindPct)
+    const side = lean(row.ownPct)
     if (side === true) nTrue += 1
     else if (side === false) nFalse += 1
     const predicted = row.predictedTruePct
@@ -74,15 +79,16 @@ export function surprisinglyPopular(rows: readonly SpInput[]): SpResult {
 /**
  * Did this student know something the crowd didn't? True when their own lean
  * matches `reference` (the outcome on STEM, the SP answer on humanities) and
- * they expected the majority of the class to lean the other way. Null when
- * the student, their prediction, or the reference has no lean.
+ * they expected the majority of the class to lean the other way. `ownPct` is
+ * the same number `SpInput.ownPct` carries. Null when the student, their
+ * prediction, or the reference has no lean.
  */
 export function spInsight(
-  blindPct: number | null | undefined,
+  ownPct: number | null | undefined,
   predictedTruePct: number | null | undefined,
   reference: boolean | null,
 ): boolean | null {
-  const own = lean(blindPct)
+  const own = lean(ownPct)
   const expected = lean(predictedTruePct)
   if (own === null || expected === null || reference === null) return null
   return own === reference && expected !== own

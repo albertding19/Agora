@@ -7,7 +7,9 @@
  *
  * Speakers arrive in speaking order with turn numbers only, never names or
  * participant ids, so nothing the model writes can name a student. The lean
- * is given to the model in words, never as a number, so it cannot echo one.
+ * is given to the model in words, never as a number, so it cannot echo one;
+ * a sentence that echoes those words ("very confident it is TRUE") is dropped
+ * too, because every member of the group reads the question on their phone.
  *
  * Normalize, don't reject: every slot is cleaned independently and an
  * unusable slot gets a generic Socratic question; only a response with zero
@@ -45,8 +47,12 @@ export interface SocratesOutput {
   questions: string[]
 }
 
-/** v2: the prompt no longer forbids asking how sure a speaker is (only numbers and percentages). */
-export const SOCRATES_VERSION = 2
+/**
+ * v2: the prompt no longer forbids asking how sure a speaker is (only numbers and percentages).
+ * v3: the normalizer also drops a sentence that echoes a lean label; the cache
+ *     stores normalized output, so the bump keeps v2 rows from serving one.
+ */
+export const SOCRATES_VERSION = 3
 export const MAX_SENTENCES_PER_TURN = 2
 export const QUESTION_MAX_CHARS = 240
 
@@ -67,6 +73,13 @@ const RawSocrates = z.object({ questions: z.array(z.string()) })
 
 /** A number followed by % or the word percent / per cent: a leaked lean or class number. */
 const PERCENT_RE = /\d+\s*%|\bper\s?cent\b/i
+/**
+ * The lean vocabulary `leanLabel` puts in the user message ("very confident it
+ * is TRUE", "leans slightly FALSE", "undecided"): echoing it would tell the
+ * whole group how sure the speaker is, which the prompt forbids.
+ */
+export const LEAN_LABEL_RE =
+  /\b(?:very )?confident (?:it is|it's|it’s) (?:true|false)\b|\blean(?:s|ing)? (?:slightly )?(?:true|false)\b|\bundecided\b/i
 /**
  * "Speaker 2:", "Speaker 2,", "Speaker 2 why", "Turn 3 -", "Question 1." and
  * the like at the start of a slot. The label is followed by punctuation or
@@ -138,7 +151,7 @@ function unwrap(text: string): string {
  *  - split into sentences; unwrap a quoted sentence and move a question mark
  *    tucked inside a closing quote ("obvious?" → "obvious"?) outside it
  *  - keep only sentences ending with "?"
- *  - drop any sentence that contains a percentage
+ *  - drop any sentence that contains a percentage or echoes a lean label
  *  - keep the first two; if the pair is over 240 chars keep the first alone
  *  - empty, still too long, or breaking the language rule → null
  */
@@ -149,7 +162,7 @@ function normalizeSlot(raw: string): string | null {
   const sentences = splitSentences(text)
     .map((s) => unwrap(s).replace(TRAILING_CLOSER_RE, '$1?'))
     .filter((s) => s.endsWith('?'))
-    .filter((s) => !PERCENT_RE.test(s))
+    .filter((s) => !PERCENT_RE.test(s) && !LEAN_LABEL_RE.test(s))
     .slice(0, MAX_SENTENCES_PER_TURN)
   if (sentences.length === 0) return null
 

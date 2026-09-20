@@ -29,6 +29,7 @@ import {
 import { proposerSpec, type ProposerInput } from '../lib/agents/proposer'
 import { runAgent, type AgentResult, type AgentSpec } from '../lib/agents/run'
 import {
+  LEAN_LABEL_RE,
   MAX_SENTENCES_PER_TURN,
   slotFallback,
   socratesSpec,
@@ -209,6 +210,7 @@ function checkSocrates(c: SocratesCase, r: AgentResult<SocratesOutput>): string[
     if (sentences.length > MAX_SENTENCES_PER_TURN) problems.push(`question ${i} has ${sentences.length} sentences`)
     if (sentences.some((s) => !s.trim().endsWith('?'))) problems.push(`question ${i} has a sentence that is not a question`)
     if (PERCENT_RE.test(q)) problems.push(`question ${i} quotes a percentage`)
+    if (LEAN_LABEL_RE.test(q)) problems.push(`question ${i} echoes a lean label`)
     if (SPEAKER_PREFIX_RE.test(q)) problems.push(`question ${i} starts with a "Speaker N" prefix`)
     const banned = findBannedWord(q)
     if (banned) problems.push(`question ${i} contains banned word "${banned}"`)

@@ -40,6 +40,17 @@ export const LABEL_MAX_CHARS = 60
 export const MIN_REASONS_TO_CLUSTER = 3
 export const OTHER_LABEL = 'Other'
 
+/**
+ * A label that names no argument: the "Other" bucket, or the "Argument N"
+ * stand-in used when the model's label was empty or broke the language rule.
+ * Readers that quote a cluster label as the reason a price moved (the arc and
+ * replay notes) treat these as no label.
+ */
+export function isPlaceholderLabel(label: string): boolean {
+  const trimmed = label.trim()
+  return trimmed.toLowerCase() === OTHER_LABEL.toLowerCase() || /^Argument \d+$/i.test(trimmed)
+}
+
 const RawClusters = z.object({
   clusters: z.array(z.object({ label: z.string(), members: z.array(z.number()) })),
 })

@@ -4,10 +4,13 @@
  * The "Socratic arc" card (plan §17.6, §17.8). Dashboard only.
  *
  * Offers the running question (from the open phase on) plus every resolved
- * question. The live selection draws straight from the polled teacher view;
- * a past question fetches `GET /api/questions/:id/history` once and keeps it
- * (a resolved history never changes). For a resolved question a "Replay"
- * toggle swaps the static arc for the 20-second time-lapse.
+ * question. The live selection draws straight from the polled teacher view.
+ * A history (`GET /api/questions/:id/history`) is fetched only for a resolved
+ * question — a past one, or the live one once it resolved and the teacher
+ * asked for the replay — and kept, because a resolved history never changes.
+ * For a resolved question a "Replay" toggle swaps the static arc for the
+ * 20-second time-lapse; the toggle is keyed to the question id, so it drops
+ * the moment the card auto-follows the next live question.
  *
  * Open-mode questions have no consensus and are never offered.
  */
@@ -49,7 +52,8 @@ function arcOptions(view: TeacherView): ArcOption[] {
 
 export function ArcCard({ view, api }: { view: TeacherView; api: Api }) {
   const [picked, setPicked] = useState<string | null>(null)
-  const [replay, setReplay] = useState(false)
+  /** The question whose replay is showing; only counts while that question is selected and resolved. */
+  const [replayFor, setReplayFor] = useState<string | null>(null)
   const [histories, setHistories] = useState<Record<string, QuestionHistory>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const inflight = useRef(new Set<string>())
@@ -59,13 +63,24 @@ export function ArcCard({ view, api }: { view: TeacherView; api: Api }) {
   const selected =
     options.find((o) => o.id === picked) ?? options.find((o) => o.live) ?? options[options.length - 1] ?? null
   const selectedId = selected?.id ?? null
+  const replay = selected?.resolved === true && replayFor === selectedId
+  // `replay` implies resolved, so a history is never fetched for an unresolved live question.
   const needHistory = selected !== null && (!selected.live || replay)
   const history = selectedId ? histories[selectedId] : undefined
   const error = selectedId ? errors[selectedId] : undefined
 
+  const clearError = (id: string): void =>
+    setErrors((prev) => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+
+  // A failed fetch is not retried until its error is cleared (Retry, or re-picking the question).
   useEffect(() => {
     if (!needHistory || selectedId === null) return
-    if (histories[selectedId] || inflight.current.has(selectedId)) return
+    if (histories[selectedId] || errors[selectedId] || inflight.current.has(selectedId)) return
     const id = selectedId
     inflight.current.add(id)
     api
@@ -73,7 +88,7 @@ export function ArcCard({ view, api }: { view: TeacherView; api: Api }) {
       .then((h) => setHistories((prev) => ({ ...prev, [id]: h })))
       .catch((e: unknown) => setErrors((prev) => ({ ...prev, [id]: e instanceof Error ? e.message : String(e) })))
       .finally(() => inflight.current.delete(id))
-  }, [api, needHistory, selectedId, histories])
+  }, [api, needHistory, selectedId, histories, errors])
 
   const cur = view.current
   const liveRow = cur ? view.questions.find((q) => q.id === cur.questionId) : undefined
@@ -106,7 +121,16 @@ export function ArcCard({ view, api }: { view: TeacherView; api: Api }) {
       />
     )
   } else if (error) {
-    body = <p className="text-sm text-destructive">Could not load this question&apos;s history: {error}</p>
+    body = (
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm text-destructive">Could not load this question&apos;s history: {error}</p>
+        {selectedId && (
+          <Button size="sm" variant="outline" onClick={() => clearError(selectedId)}>
+            Retry
+          </Button>
+        )}
+      </div>
+    )
   } else {
     body = <p className="text-sm text-muted-foreground">Loading…</p>
   }
@@ -128,13 +152,8 @@ export function ArcCard({ view, api }: { view: TeacherView; api: Api }) {
                 const id = e.target.value
                 const opt = options.find((o) => o.id === id)
                 setPicked(opt?.live ? null : id)
-                setReplay(false)
-                setErrors((prev) => {
-                  if (!(id in prev)) return prev
-                  const next = { ...prev }
-                  delete next[id]
-                  return next
-                })
+                setReplayFor(null)
+                clearError(id)
               }}
             >
               {options.map((o) => (
@@ -144,7 +163,11 @@ export function ArcCard({ view, api }: { view: TeacherView; api: Api }) {
               ))}
             </select>
             {selected?.resolved && (
-              <Button size="sm" variant={replay ? 'secondary' : 'outline'} onClick={() => setReplay((r) => !r)}>
+              <Button
+                size="sm"
+                variant={replay ? 'secondary' : 'outline'}
+                onClick={() => setReplayFor(replay ? null : selectedId)}
+              >
                 {replay ? 'Show the arc' : 'Replay'}
               </Button>
             )}

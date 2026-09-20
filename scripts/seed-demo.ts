@@ -3,7 +3,8 @@
  *
  *   npx tsx scripts/seed-demo.ts [--base http://localhost:3000] [--cascade] [--no-warm]
  *
- *   1. creates the demo session with the fast timer preset and DEMO_FEATURES,
+ *   1. creates the demo session with DEMO_FEATURES and the fast timer preset
+ *      derived from them (scripts/demo-preset.ts),
  *   2. adds the three demo questions (with --cascade, Q1 twice: the second run
  *      shows the live consensus during blind for the herding beat, plan §17.5),
  *   3. pre-warms every agent through GET /api/health/agents,
@@ -17,24 +18,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { ApiRequestError, createApi } from '../lib/api'
-import type { FeaturesPatchBody, QuestionInput, Timers } from '../lib/types'
-
-/**
- * The flags the demo runs with. Edit here; the dashboard's settings card can
- * also toggle them between questions, since views read them live. Pitch line
- * for this preset: "Two questions from MIT research, one from Socrates."
- */
-export const DEMO_FEATURES: FeaturesPatchBody = {
-  considerOpposite: true,
-  predictClass: true,
-  socrates: true,
-  steelman: false,
-  contrarianCredit: false,
-  argumentElo: false,
-}
-
-/** Fast preset: three questions in under ten minutes (§17.1 adds ~30 s per blind phase). */
-export const DEMO_TIMERS: Timers = { blindSeconds: 45, turnSeconds: 20, openSeconds: 45 }
+import type { FeaturesPatchBody, QuestionInput } from '../lib/types'
+import { DEMO_FEATURES, DEMO_TIMERS } from './demo-preset'
 
 /**
  * Duplicated from scripts/simulate.ts, which runs main() at import and so

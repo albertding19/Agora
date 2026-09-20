@@ -122,8 +122,11 @@ export async function buildStudentView(
       ? (mine?.reasoning ?? '').trim().length > 0
       : mine?.blind_pct !== null && mine?.blind_pct !== undefined,
     firstPct: first,
-    oppositePct: mine?.opposite_pct ?? null,
-    oppositeReasoning: mine?.opposite_reasoning ?? null,
+    // Gated on the flag: a second number recorded before the flag was
+    // switched off must not resurface, or the phone would print an "average"
+    // that is not the number on record.
+    oppositePct: features.considerOpposite ? (mine?.opposite_pct ?? null) : null,
+    oppositeReasoning: features.considerOpposite ? (mine?.opposite_reasoning ?? null) : null,
     blindStep,
     // §17.2 predict the class: stored whenever sent; the UI gates on the flag.
     predictedTruePct: mine?.predicted_true_pct ?? null,
@@ -147,8 +150,10 @@ export async function buildStudentView(
       members: names.map((name) => ({ name })),
       turnOrder: names,
       turnSeconds: session.turn_seconds,
-      // §17.4 Socrates: the student's own group's questions only, one per speaker.
-      socratesQuestions: myGroup.socratic_questions ?? null,
+      // §17.4 Socrates: the student's own group's questions only, one per
+      // speaker; null with the flag off (the route is not flag-gated, so the
+      // view is — the component check is defense in depth).
+      socratesQuestions: features.socrates ? (myGroup.socratic_questions ?? null) : null,
     }
   }
 

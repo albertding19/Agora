@@ -70,8 +70,12 @@ function Present({ sessionId, token }: { sessionId: string; token: string }) {
   const sideBySide =
     cmp !== null && cmp.blindRevealed && cmp.cascadeQuestionId === cur.questionId && !phaseAtLeast(cur.phase, 'open')
 
-  const showPrice = !sideBySide && (cur.pricePct !== null || (cur.blindRevealed && cur.blindPricePct !== null))
-  const pct = cur.pricePct ?? (cur.blindRevealed ? cur.blindPricePct : null)
+  // Before the open discussion the only number is the blind consensus, and
+  // the class sees it only after the teacher's Reveal (the dashboard view
+  // carries it from the snapshot on regardless; the phones gate the same way).
+  const preDebate = cur.phase === 'snapshot' || cur.phase === 'structured'
+  const pct = preDebate ? (cur.blindRevealed ? cur.blindPricePct : null) : cur.pricePct
+  const showPrice = !sideBySide && pct !== null
   const label =
     cur.phase === 'blind'
       ? 'Class consensus so far: TRUE'

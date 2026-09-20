@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { MIN_SP_PREDICTIONS, lean, spInsight, surprisinglyPopular, type SpInput } from './surprisinglyPopular'
 
 function rows(blind: (number | null)[], predictions: (number | null)[] = []): SpInput[] {
-  return blind.map((blindPct, i) => ({ blindPct, predictedTruePct: predictions[i] ?? null }))
+  return blind.map((ownPct, i) => ({ ownPct, predictedTruePct: predictions[i] ?? null }))
 }
 
 describe('lean', () => {
@@ -80,11 +80,11 @@ describe('surprisinglyPopular', () => {
 
   it('skips undefined and non-finite predictions instead of counting them', () => {
     const out = surprisinglyPopular([
-      { blindPct: 80, predictedTruePct: undefined },
-      { blindPct: 20, predictedTruePct: Number.NaN },
-      { blindPct: 70, predictedTruePct: 60 },
-      { blindPct: 70, predictedTruePct: 60 },
-      { blindPct: undefined, predictedTruePct: 60 },
+      { ownPct: 80, predictedTruePct: undefined },
+      { ownPct: 20, predictedTruePct: Number.NaN },
+      { ownPct: 70, predictedTruePct: 60 },
+      { ownPct: 70, predictedTruePct: 60 },
+      { ownPct: undefined, predictedTruePct: 60 },
     ])
     expect(out.actualTruePct).toBeCloseTo(75)
     expect(out.predictedTruePct).toBeCloseTo(60)
@@ -100,7 +100,7 @@ describe('surprisinglyPopular', () => {
 
   it('is order-independent and deterministic for a 30-student class', () => {
     const input = Array.from({ length: 30 }, (_, i) => ({
-      blindPct: i % 7 === 0 ? 50 : i < 17 ? 80 : 20,
+      ownPct: i % 7 === 0 ? 50 : i < 17 ? 80 : 20,
       predictedTruePct: i % 5 === 0 ? null : 55 + (i % 3) * 5,
     }))
     const forward = surprisinglyPopular(input)

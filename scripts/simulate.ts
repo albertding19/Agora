@@ -347,7 +347,10 @@ async function main(): Promise<void> {
       // §17.4: one call per group, out of band, before the structured round.
       try {
         const res = await t.socrates(q.id)
-        console.log(res.skipped ? '  socrates: skipped' : `  socrates: ready (${res.groups.length} groups, ${res.fallbackCount} fallbacks)`)
+        const staleNote = res.stale > 0 ? `, ${res.stale} regrouped under the run` : ''
+        console.log(
+          res.skipped ? '  socrates: skipped' : `  socrates: ready (${res.groups.length} groups, ${res.fallbackCount} fallbacks${staleNote})`,
+        )
       } catch (e) {
         if (!(e instanceof ApiRequestError && e.status === 409)) throw e
         console.log(`  socrates: ${e.code}`)

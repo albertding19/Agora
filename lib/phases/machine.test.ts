@@ -5,6 +5,7 @@ import {
   computeSnapshot,
   livePricePct,
   nextPhase,
+  ownPct,
   phaseDurationSeconds,
   speakerIndex,
   timerExpired,
@@ -124,7 +125,37 @@ describe('snapshot', () => {
     expect(result.surprisinglyPopular.predictedTruePct).toBeCloseTo(82.5)
     expect(result.surprisinglyPopular.answer).toBe(true)
   })
+
+  it('reads the surprisingly popular lean from the first number, not the blend', () => {
+    // Consider the opposite (plan §17.1): every student mirrored their first
+    // number, so every blend is exactly 50 and leans neither way. The lean
+    // must come from the first number, or a class that all opposed has no
+    // leaners and no answer even though everyone predicted the class.
+    const result = computeSnapshot({ participantIds: ['a', 'b', 'c', 'd', 'e'], submissions: opposed, budget: B, b })
+    // The engine still prices the blends: everyone at 50 → net 0 → 50%.
+    expect(result.blindPricePct).toBeCloseTo(50)
+    // 80% leaned TRUE by their first numbers while the class expected 84% to: FALSE is surprisingly popular.
+    expect(result.surprisinglyPopular.actualTruePct).toBeCloseTo(80)
+    expect(result.surprisinglyPopular.predictedTruePct).toBeCloseTo(84)
+    expect(result.surprisinglyPopular.answer).toBe(false)
+  })
+
+  it('falls back to the engine number when no first number is known', () => {
+    expect(ownPct({ participantId: 'a', blindPct: 50, currentPct: null, firstPct: 85 })).toBe(85)
+    expect(ownPct({ participantId: 'a', blindPct: 50, currentPct: null, firstPct: null })).toBe(50)
+    expect(ownPct({ participantId: 'a', blindPct: 50, currentPct: null })).toBe(50)
+    expect(ownPct({ participantId: 'a', blindPct: null, currentPct: null })).toBeNull()
+  })
 })
+
+/** Five students who all mirrored their first number (plan §17.1): firsts 85/80/75/70/15, blends all 50. */
+const opposed = [
+  { participantId: 'a', blindPct: 50, currentPct: null, firstPct: 85, predictedTruePct: 85 },
+  { participantId: 'b', blindPct: 50, currentPct: null, firstPct: 80, predictedTruePct: 90 },
+  { participantId: 'c', blindPct: 50, currentPct: null, firstPct: 75, predictedTruePct: 80 },
+  { participantId: 'd', blindPct: 50, currentPct: null, firstPct: 70, predictedTruePct: 85 },
+  { participantId: 'e', blindPct: 50, currentPct: null, firstPct: 15, predictedTruePct: 80 },
+]
 
 describe('live price', () => {
   it('uses the current number when revised, else the blind one', () => {
@@ -229,5 +260,20 @@ describe('resolution', () => {
     expect(r.perParticipant.get('b')!.spInsight).toBe(false)
     expect(r.perParticipant.get('c')!.spInsight).toBe(false)
     expect(r.perParticipant.get('a')!.contrarianBonus).toBeNull()
+  })
+
+  it('measures insight by the first number when everyone blended to 50', () => {
+    const group = [{ idx: 0, turnOrder: ['a', 'b', 'c', 'd', 'e'] }]
+    const stem = computeResolution({ mode: 'stem', outcome: false, budget: B, b, submissions: opposed, groups: group })
+    // e leaned FALSE by their first number (right) while expecting 80% of the class to say TRUE.
+    expect(stem.perParticipant.get('e')!.spInsight).toBe(true)
+    for (const id of ['a', 'b', 'c', 'd']) expect(stem.perParticipant.get(id)!.spInsight).toBe(false)
+    // Calibration still scores the blend the engine read: 50 against FALSE is 75 for everyone.
+    for (const v of stem.perParticipant.values()) expect(v.calibrationBlind).toBeCloseTo(75)
+
+    // Humanities: the reference is the surprisingly popular answer (FALSE), so the same student has the insight.
+    const hum = computeResolution({ mode: 'humanities', outcome: null, budget: B, b, submissions: opposed, groups: group })
+    expect(hum.perParticipant.get('e')!.spInsight).toBe(true)
+    expect(hum.perParticipant.get('a')!.spInsight).toBe(false)
   })
 })

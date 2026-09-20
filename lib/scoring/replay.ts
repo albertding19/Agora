@@ -45,6 +45,10 @@ export function replayRevealCount(points: readonly HistoryPoint[], progress: num
  * line, then every note that moved the price as a bullet, in order. A note
  * is one bullet on one line: its internal whitespace (a newline typed into
  * the reasoning box) collapses to single spaces; blank notes are skipped.
+ * A note identical to the one just emitted is skipped too, so several
+ * slider commits under the same note (or the same cluster label moving
+ * the price twice in a row) read as one bullet; the same note appearing
+ * again after a different one is kept, since it moved the price again.
  */
 export function replaySummary(history: QuestionHistory): string {
   const lines = [
@@ -57,9 +61,12 @@ export function replaySummary(history: QuestionHistory): string {
       mode: history.mode,
     }),
   ]
+  let previous: string | null = null
   for (const p of history.points) {
     const note = p.note?.replace(/\s+/g, ' ').trim()
-    if (note) lines.push(`- ${note}`)
+    if (!note || note === previous) continue
+    lines.push(`- ${note}`)
+    previous = note
   }
   return lines.join('\n')
 }

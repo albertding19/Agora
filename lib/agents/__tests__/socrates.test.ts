@@ -5,6 +5,7 @@ import { PROMPT_TAIL } from '../run'
 import {
   CONFIDENT_FALLBACK_QUESTION,
   FALLBACK_QUESTIONS,
+  LEAN_LABEL_RE,
   MAX_SENTENCES_PER_TURN,
   QUESTION_MAX_CHARS,
   mostConfidentIndex,
@@ -261,6 +262,44 @@ describe('normalizeSocrates review regressions', () => {
   })
 })
 
+describe('normalizeSocrates lean-label guard', () => {
+  const one = (slot: string) => normalizeSocrates({ questions: [slot, CLEAN[1], CLEAN[2]] }, input())!.questions[0]
+
+  it("drops a sentence that says how sure the speaker is in the prompt's own words", () => {
+    expect(one('You sound very confident it is TRUE, so why? What would change your mind?')).toBe('What would change your mind?')
+    expect(one('Why do you lean slightly FALSE here? What is the mechanism?')).toBe('What is the mechanism?')
+    expect(one("Since you're undecided, what would tip you? What else?")).toBe('What else?')
+    expect(one('Why are you confident it is true?')).toBe(slotFallback(0, 3))
+    expect(one("What makes you confident it's false?")).toBe(slotFallback(0, 3))
+    expect(one('Why does the group think you lean TRUE?')).toBe(slotFallback(0, 3))
+    expect(one('Are you leaning FALSE because of the video?')).toBe(slotFallback(0, 3))
+  })
+
+  it('keeps a question that only asks what makes the speaker sure, or uses true/false about the claim', () => {
+    for (const q of [
+      'What makes you so sure?',
+      'How sure are you of that step?',
+      'Is it true that the bat costs a dollar more?',
+      'Which step would be false if the gap were zero?',
+      'What would it take to make you less sure than you are right now?',
+    ]) {
+      expect(one(q)).toBe(q)
+    }
+  })
+
+  it('catches every lean label the user message can carry for a numeric lean', () => {
+    for (let pct = 0; pct <= 100; pct += 5) {
+      const msg = socratesSpec.userMessage({ proposition: 'p', speakers: [{ turn: 1, leanPct: pct, reasoning: null }] })
+      const line = msg.split('\n').find((l) => l.startsWith('Turn 1:'))!
+      expect(LEAN_LABEL_RE.test(line), `lean ${pct}: ${line}`).toBe(true)
+    }
+  })
+
+  it('never removes a fallback question', () => {
+    for (const q of [...FALLBACK_QUESTIONS, CONFIDENT_FALLBACK_QUESTION]) expect(LEAN_LABEL_RE.test(q)).toBe(false)
+  })
+})
+
 describe('socrates.cases.json leak regexes', () => {
   interface Case {
     name: string
@@ -275,6 +314,13 @@ describe('socrates.cases.json leak regexes', () => {
       const re = new RegExp(c.expect.noAnswerLeak, 'i')
       expect(re.test(c.input.proposition)).toBe(false)
       for (const s of c.input.speakers) if (s.reasoning) expect(re.test(s.reasoning)).toBe(false)
+    }
+  })
+
+  it('no speaker reason or proposition trips the lean-label guard, so quoting a reason is safe', () => {
+    for (const c of cases) {
+      expect(LEAN_LABEL_RE.test(c.input.proposition)).toBe(false)
+      for (const s of c.input.speakers) if (s.reasoning) expect(LEAN_LABEL_RE.test(s.reasoning)).toBe(false)
     }
   })
 

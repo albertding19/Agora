@@ -129,4 +129,27 @@ describe('replaySummary', () => {
     ])
     expect(replaySummary(messy)).toBe(replaySummary(messy))
   })
+
+  it('collapses consecutive identical notes into one bullet but keeps a note that returns later', () => {
+    // Several slider commits under one note, then another note, then the first note again.
+    const notes = [null, 'Cluster: subtract the dollar first', 'Cluster:  subtract the dollar first\n', 'Cluster: subtract the dollar first', 'plain', 'Cluster: subtract the dollar first']
+    const repeated = { ...history, points: history.points.map((p, i) => ({ ...p, note: notes[i] ?? null })) }
+    expect(replaySummary(repeated).split('\n')).toEqual([
+      'The ball costs 10 cents.',
+      'Confident at 82% → crossed 50% during the open discussion → resolved FALSE',
+      '- Cluster: subtract the dollar first',
+      '- plain',
+      '- Cluster: subtract the dollar first',
+    ])
+  })
+
+  it('does not let a blank note break a run of identical notes', () => {
+    const notes = [null, 'same', '  ', 'same', null, null]
+    const gapped = { ...history, points: history.points.map((p, i) => ({ ...p, note: notes[i] ?? null })) }
+    expect(replaySummary(gapped).split('\n')).toEqual([
+      'The ball costs 10 cents.',
+      'Confident at 82% → crossed 50% during the open discussion → resolved FALSE',
+      '- same',
+    ])
+  })
 })

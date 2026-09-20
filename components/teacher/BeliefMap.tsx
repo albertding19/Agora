@@ -1,6 +1,5 @@
 import { fmtPct } from '@/components/shared/PriceDisplay'
 import { Badge } from '@/components/ui/badge'
-import { openQuestionReading } from '@/lib/scoring/reading'
 import type { TeacherQuestionRow } from '@/lib/types'
 
 function answerCell(r: TeacherQuestionRow): string {
@@ -13,7 +12,11 @@ function answerCell(r: TeacherQuestionRow): string {
   return r.correctAnswer ? 'TRUE' : 'FALSE'
 }
 
-/** One row per question: blind price, post-debate price, outcome, movement, reading. */
+/**
+ * One row per question: blind price, post-debate price, outcome, movement,
+ * reading. The reading is the view's sentence verbatim (null → "—"); nothing
+ * is re-derived here, so a pending open row reads like a pending STEM row.
+ */
 export function BeliefMap({ rows }: { rows: TeacherQuestionRow[] }) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">No questions yet.</p>
   return (
@@ -50,7 +53,7 @@ export function BeliefMap({ rows }: { rows: TeacherQuestionRow[] }) {
               <td className="py-1 pr-2 tabular-nums">
                 {r.movementPct === null ? '—' : `${r.movementPct > 0 ? '+' : ''}${r.movementPct.toFixed(0)}`}
               </td>
-              <td className="py-1">{r.reading ?? (r.mode === 'open' ? openQuestionReading(r.clusterCount) : '—')}</td>
+              <td className="py-1">{r.reading ?? '—'}</td>
             </tr>
           ))}
         </tbody>

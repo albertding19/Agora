@@ -4,10 +4,15 @@ import type { TeacherView } from '@/lib/types'
 
 export type CascadeComparisonData = NonNullable<TeacherView['cascadeComparison']>
 
+/**
+ * Signed gap at the one-decimal precision `cascadeReading` applies its
+ * thresholds to (12 → "+12 points", -9.6 → "-9.6 points"), so the stat can
+ * never contradict the sentence under it.
+ */
 function fmtGap(gap: number | null): string {
   if (gap === null) return '—'
-  const rounded = Math.round(gap)
-  return `${rounded > 0 ? '+' : ''}${rounded} points`
+  const n = Number(gap.toFixed(1))
+  return `${n > 0 ? '+' : ''}${n} points`
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

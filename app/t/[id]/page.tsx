@@ -21,6 +21,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { createApi, type Api } from '@/lib/api'
 import { isOpenQuestion } from '@/lib/phases/machine'
 import { useSessionView } from '@/lib/realtime/useSessionView'
+import { normalizeProposition } from '@/lib/scoring/cascade'
 import { setTeacherToken, useHydrated, useTeacherToken } from '@/lib/storage'
 import type { Mode, QuestionInput, TeacherQuestionRow, TeacherView } from '@/lib/types'
 
@@ -77,8 +78,14 @@ type Current = NonNullable<TeacherView['current']>
  */
 type Run = (label: string, fn: () => Promise<unknown>, opts?: { tick?: boolean }) => Promise<void>
 
-/** Candidate batches keyed by the open question they came from, or 'topic'. */
-type CandidateBatches = Record<string, CandidatesBatch & { version: number }>
+/**
+ * Candidate batches keyed by the open question they came from, or 'topic'.
+ * `added` remembers which candidates went in, because the panel moves from
+ * the current-question card to the question list once the next question
+ * starts and must not offer an added candidate again.
+ */
+type CandidateBatch = CandidatesBatch & { version: number; added: number[] }
+type CandidateBatches = Record<string, CandidateBatch>
 const TOPIC_KEY = 'topic'
 
 function Dashboard({ sessionId, token }: { sessionId: string; token: string }) {
@@ -108,7 +115,14 @@ function Dashboard({ sessionId, token }: { sessionId: string; token: string }) {
   )
 
   const showCandidates = useCallback((key: string, batch: CandidatesBatch) => {
-    setCandidates((prev) => ({ ...prev, [key]: { ...batch, version: (prev[key]?.version ?? 0) + 1 } }))
+    setCandidates((prev) => ({ ...prev, [key]: { ...batch, version: (prev[key]?.version ?? 0) + 1, added: [] } }))
+  }, [])
+  const markAdded = useCallback((key: string, index: number) => {
+    setCandidates((prev) => {
+      const batch = prev[key]
+      if (!batch || batch.added.includes(index)) return prev
+      return { ...prev, [key]: { ...batch, added: [...batch.added, index] } }
+    })
   }, [])
 
   // Socrates (plan §17.4) runs outside `run` so the other controls stay usable
@@ -129,8 +143,20 @@ function Dashboard({ sessionId, token }: { sessionId: string; token: string }) {
     [api, expectTick],
   )
 
+  // Recomputing the snapshot regroups and clears the Socrates questions, so
+  // the auto-trigger below must be allowed to fire once more for this question.
+  const recomputeSnapshot = useCallback(
+    async (questionId: string) => {
+      await api.recomputeSnapshot(questionId)
+      socratesTriggered.current.delete(questionId)
+    },
+    [api],
+  )
+
   // Auto-trigger once per question at the snapshot; the ref set also stops
-  // strict-mode double fires and the 2 s poll from re-firing.
+  // strict-mode double fires and the 2 s poll from re-firing. `socratesBusy`
+  // is a dependency so a run that finished after a recompute (status still
+  // 'none', ref cleared) fires once more for the fresh groups.
   const cur = view?.current ?? null
   const socratesOn = view?.session.features.socrates ?? false
   const curId = cur?.questionId ?? null
@@ -138,11 +164,11 @@ function Dashboard({ sessionId, token }: { sessionId: string; token: string }) {
   const curStatus = cur?.socraticStatus ?? null
   const curIsOpen = cur ? isOpenQuestion(cur) : false
   useEffect(() => {
-    if (!socratesOn || !curId || curPhase !== 'snapshot' || curStatus !== 'none' || curIsOpen) return
+    if (!socratesOn || !curId || curPhase !== 'snapshot' || curStatus !== 'none' || curIsOpen || socratesBusy) return
     if (socratesTriggered.current.has(curId)) return
     socratesTriggered.current.add(curId)
     void prepareSocrates(curId)
-  }, [socratesOn, curId, curPhase, curStatus, curIsOpen, prepareSocrates])
+  }, [socratesOn, curId, curPhase, curStatus, curIsOpen, socratesBusy, prepareSocrates])
 
   if (!view) {
     return <p className="text-muted-foreground">{error ? `Could not load the dashboard: ${error}` : 'Connecting…'}</p>
@@ -150,10 +176,15 @@ function Dashboard({ sessionId, token }: { sessionId: string; token: string }) {
 
   const features = view.session.features
   const betweenQuestions = !cur || cur.phase === 'resolved'
+  // Name only the ranking keys in play for the flags that are on.
   const rankingText =
-    features.contrarianCredit || features.steelman
-      ? 'Calibration first (plus contrarian credit when enabled), then persuasion, then steelman.'
-      : 'Calibration first, then persuasion.'
+    [
+      features.contrarianCredit ? 'Calibration plus contrarian credit first' : 'Calibration first',
+      'then persuasion',
+      features.steelman ? 'then steelman' : null,
+    ]
+      .filter((part): part is string => part !== null)
+      .join(', ') + '.'
 
   return (
     <div className="flex flex-col gap-4">
@@ -185,8 +216,10 @@ function Dashboard({ sessionId, token }: { sessionId: string; token: string }) {
               api={api}
               socratesBusy={socratesBusy}
               onPrepareSocrates={prepareSocrates}
+              onRecomputeSnapshot={recomputeSnapshot}
               onCandidates={showCandidates}
               candidates={candidates[cur.questionId]}
+              onAdded={markAdded}
             />
           ) : (
             <Card>
@@ -235,7 +268,8 @@ function Dashboard({ sessionId, token }: { sessionId: string; token: string }) {
             run={run}
             api={api}
             onCandidates={showCandidates}
-            topicBatch={candidates[TOPIC_KEY]}
+            candidates={candidates}
+            onAdded={markAdded}
           />
           {betweenQuestions && (
             <SessionSettings sessionId={view.session.id} features={features} busy={busy} run={run} api={api} />
@@ -286,7 +320,7 @@ function spHint(sp: NonNullable<Current['surprisinglyPopular']>, phase: Current[
     parts.push('not enough predictions')
   }
   if (phase === 'resolved' && sp.insightPct !== null) {
-    parts.push(`${sp.insightPct.toFixed(0)}% of predictors expected to be outvoted and were right`)
+    parts.push(`${sp.insightPct.toFixed(0)}% of decided predictors expected to be outvoted and were right`)
   }
   return parts.join(' · ')
 }
@@ -299,8 +333,10 @@ function CurrentQuestion({
   api,
   socratesBusy,
   onPrepareSocrates,
+  onRecomputeSnapshot,
   onCandidates,
   candidates,
+  onAdded,
 }: {
   view: TeacherView
   cur: Current
@@ -309,13 +345,18 @@ function CurrentQuestion({
   api: Api
   socratesBusy: boolean
   onPrepareSocrates: (questionId: string) => Promise<void>
+  onRecomputeSnapshot: (questionId: string) => Promise<void>
   onCandidates: (key: string, batch: CandidatesBatch) => void
-  candidates: (CandidatesBatch & { version: number }) | undefined
+  candidates: CandidateBatch | undefined
+  onAdded: (key: string, index: number) => void
 }) {
   const features = view.session.features
   const open = isOpenQuestion(cur)
   const clustersHint = cur.clustersStatus === 'ready' ? `${cur.clusters.length} argument clusters` : cur.clustersStatus
-  const groupsHint = features.socrates ? `${clustersHint} · Socrates ${cur.socraticStatus}` : clustersHint
+  // Socrates (plan §17.4): copy per status, never the raw enum value.
+  const socratesHint =
+    cur.socraticStatus === 'ready' ? ' · Socrates ready' : socratesBusy && cur.socraticStatus === 'none' ? ' · Socrates preparing…' : ''
+  const groupsHint = features.socrates ? `${clustersHint}${socratesHint}` : clustersHint
   const liveHint = cur.phase === 'open' ? 'moving' : cur.cascade && cur.phase === 'blind' ? 'visible to students (cascade)' : ''
 
   return (
@@ -353,6 +394,7 @@ function CurrentQuestion({
           api={api}
           socratesBusy={socratesBusy}
           onPrepareSocrates={onPrepareSocrates}
+          onRecomputeSnapshot={onRecomputeSnapshot}
           onCandidates={onCandidates}
         />
         {open ? (
@@ -393,11 +435,12 @@ function CurrentQuestion({
               <CandidatesPanel
                 key={`sharpen-${cur.questionId}-${candidates.version}`}
                 batch={candidates}
-                clusters={cur.clusters}
                 sessionId={view.session.id}
                 api={api}
                 busy={busy}
                 run={run}
+                added={candidates.added}
+                onAdded={(i) => onAdded(cur.questionId, i)}
               />
             )}
           </>
@@ -414,7 +457,7 @@ function CurrentQuestion({
                   hint={
                     cur.consideredOpposite.meanShiftPts === null
                       ? undefined
-                      : `pulled confidence back ${cur.consideredOpposite.meanShiftPts.toFixed(0)} points on average`
+                      : `moved the first number ${cur.consideredOpposite.meanShiftPts.toFixed(0)} points on average`
                   }
                 />
               )}
@@ -495,6 +538,7 @@ function Controls({
   api,
   socratesBusy,
   onPrepareSocrates,
+  onRecomputeSnapshot,
   onCandidates,
 }: {
   view: TeacherView
@@ -503,6 +547,7 @@ function Controls({
   api: Api
   socratesBusy: boolean
   onPrepareSocrates: (questionId: string) => Promise<void>
+  onRecomputeSnapshot: (questionId: string) => Promise<void>
   onCandidates: (key: string, batch: CandidatesBatch) => void
 }) {
   const cur = view.current!
@@ -526,7 +571,7 @@ function Controls({
       'Sharpen into a proposition',
       async () => {
         const result = await api.sharpen(qid)
-        onCandidates(qid, { kind: 'sharpen', sourceQuestionId: qid, result })
+        onCandidates(qid, { kind: 'sharpen', sourceQuestionId: qid, clusters: cur.clusters, result })
       },
       'secondary',
       { disabled: cur.clustersStatus !== 'ready', tick: false },
@@ -577,7 +622,7 @@ function Controls({
         <div className="flex flex-wrap gap-2">
           {!cur.blindRevealed && btn('Reveal blind consensus', () => api.reveal(qid), 'secondary')}
           {clustering}
-          {btn('Recompute snapshot', () => api.recomputeSnapshot(qid), 'outline')}
+          {btn('Recompute snapshot', () => onRecomputeSnapshot(qid), 'outline')}
           {socrates}
           {btn('Start debate', () => api.advance(qid, { from: 'snapshot' }))}
         </div>
@@ -612,6 +657,12 @@ function answerLabel(q: TeacherQuestionRow): string {
   return 'no answer'
 }
 
+/** True when a cascade run of the same proposition already exists (any phase), so the demo trick is offered once. */
+function hasCascadeTwin(q: TeacherQuestionRow, questions: readonly TeacherQuestionRow[]): boolean {
+  const key = normalizeProposition(q.proposition)
+  return questions.some((x) => x.cascade && normalizeProposition(x.proposition) === key)
+}
+
 /** The same proposition again with the live consensus visible (plan §17.5, the one-click demo trick). */
 function cascadeRerun(q: TeacherQuestionRow): QuestionInput {
   return {
@@ -628,15 +679,23 @@ function QuestionList({
   run,
   api,
   onCandidates,
-  topicBatch,
+  candidates,
+  onAdded,
 }: {
   view: TeacherView
   busy: string | null
   run: Run
   api: Api
   onCandidates: (key: string, batch: CandidatesBatch) => void
-  topicBatch: (CandidatesBatch & { version: number }) | undefined
+  candidates: CandidateBatches
+  onAdded: (key: string, index: number) => void
 }) {
+  const topicBatch = candidates[TOPIC_KEY]
+  // Sharpen batches whose open question is no longer the current one; the
+  // current question's batch renders in its own card.
+  const pastSharpen = view.questions.filter(
+    (q) => isOpenQuestion(q) && q.id !== view.current?.questionId && candidates[q.id] !== undefined,
+  )
   const [proposition, setProposition] = useState('')
   const [mode, setMode] = useState<Mode>('stem')
   const [answer, setAnswer] = useState<boolean>(false)
@@ -674,7 +733,7 @@ function QuestionList({
                   Start
                 </Button>
               )}
-              {q.phase === 'resolved' && !q.cascade && !isOpenQuestion(q) && (
+              {q.phase === 'resolved' && !q.cascade && !isOpenQuestion(q) && !hasCascadeTwin(q, view.questions) && (
                 <Button
                   size="xs"
                   variant="outline"
@@ -690,6 +749,26 @@ function QuestionList({
             </li>
           ))}
         </ol>
+        {pastSharpen.map((q) => {
+          const batch = candidates[q.id]
+          return (
+            <div key={q.id} className="flex flex-col gap-2 border-t border-border pt-3">
+              <p className="text-xs text-muted-foreground">
+                Sharpened from Q{q.index + 1}: {q.proposition}
+              </p>
+              <CandidatesPanel
+                key={`sharpen-${q.id}-${batch.version}`}
+                batch={batch}
+                sessionId={view.session.id}
+                api={api}
+                busy={busy}
+                run={run}
+                added={batch.added}
+                onAdded={(i) => onAdded(q.id, i)}
+              />
+            </div>
+          )
+        })}
         <form
           className="flex flex-col gap-2 border-t border-border pt-3"
           onSubmit={(e) => {
@@ -778,7 +857,7 @@ function QuestionList({
               'generate',
               async () => {
                 const result = await api.generate(view.session.id, t)
-                onCandidates(TOPIC_KEY, { kind: 'topic', sourceQuestionId: null, result })
+                onCandidates(TOPIC_KEY, { kind: 'topic', sourceQuestionId: null, clusters: [], result })
               },
               { tick: false },
             )
@@ -800,11 +879,12 @@ function QuestionList({
             <CandidatesPanel
               key={`topic-${topicBatch.version}`}
               batch={topicBatch}
-              clusters={[]}
               sessionId={view.session.id}
               api={api}
               busy={busy}
               run={run}
+              added={topicBatch.added}
+              onAdded={(i) => onAdded(TOPIC_KEY, i)}
             />
           )}
         </form>

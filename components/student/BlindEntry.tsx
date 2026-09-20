@@ -46,6 +46,8 @@ export function BlindEntry({
   const [pct, setPct] = useState<number>(my?.firstPct ?? my?.pct ?? 50)
   const [band, setBand] = useState<Band | null>(my?.band ?? null)
   const [predicted, setPredicted] = useState<number>(my?.predictedTruePct ?? 50)
+  /** Only a prediction the student actually set is sent; an untouched slider is not a prediction. */
+  const [predictedTouched, setPredictedTouched] = useState<boolean>(typeof my?.predictedTruePct === 'number')
   const [proposing, setProposing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   /** The first number on record (the only number when the flag is off). */
@@ -80,11 +82,12 @@ export function BlindEntry({
         participantId,
         pct,
         reasoning: reasoning.trim() || undefined,
-        ...(predictClass ? { predictedTruePct: predicted } : {}),
+        ...(predictClass && predictedTouched ? { predictedTruePct: predicted } : {}),
       })
       setFirstPct(pct)
       onMutated()
-      if (considerOpposite) setStep('opposite')
+      // A second number already on record was re-blended by the server; go back to the summary.
+      if (considerOpposite) setStep(savedOpposite === null ? 'opposite' : 'done')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -258,7 +261,7 @@ export function BlindEntry({
           <div className="flex flex-col gap-2">
             <PriceDisplay pct={view.pricePct} label="Class consensus so far: TRUE" />
             <p className="text-center text-sm text-muted-foreground">
-              Others have already answered. This is where the class stands right now. Your number is still yours.
+              As classmates answer, this is where the class stands right now. Your number is still yours.
             </p>
           </div>
         )}
@@ -268,8 +271,16 @@ export function BlindEntry({
         {predictClass && (
           <div className="flex flex-col gap-2 rounded-lg border p-3">
             <p className="text-sm font-medium">Predict the class</p>
-            <p className="text-sm text-muted-foreground">What % of the class will say TRUE?</p>
-            <BeliefSlider compact value={predicted} onChange={setPredicted} label="of the class will say TRUE" />
+            <p className="text-sm text-muted-foreground">What % of the class will say TRUE? (optional)</p>
+            <BeliefSlider
+              compact
+              value={predicted}
+              onChange={(v) => {
+                setPredicted(v)
+                setPredictedTouched(true)
+              }}
+              label="of the class will say TRUE"
+            />
           </div>
         )}
 

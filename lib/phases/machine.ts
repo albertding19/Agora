@@ -112,10 +112,24 @@ export function speakerIndex(phaseStartedAt: string | Date, now: Date, turnSecon
 
 export interface SubmissionState {
   participantId: string
+  /** The number the engine reads. With consider-the-opposite on (plan §17.1) it is the blend of the two numbers. */
   blindPct: number | null
   currentPct: number | null
   /** Predict the class (plan §17.2). Optional so fixtures built as literals keep compiling. */
   predictedTruePct?: number | null
+  /**
+   * The student's own first number (plan §17.1), before any blend. The
+   * surprisingly popular lean is read from this, not from `blindPct`: a
+   * student who mirrors their first number blends to exactly 50, which leans
+   * neither way, and the class prediction is made alongside the first
+   * number. Optional; falls back to `blindPct`.
+   */
+  firstPct?: number | null
+}
+
+/** The number a student leans by (plan §17.2): their own first number, else the engine number. */
+export function ownPct(s: SubmissionState): number | null {
+  return s.firstPct ?? s.blindPct
 }
 
 /** Price over the numbers students currently hold (current, else blind). Non-submitters are excluded. */
@@ -134,10 +148,15 @@ export function blindPricePct(submissions: readonly SubmissionState[], budget: n
   return pricePct(pcts, budget, b)
 }
 
-/** The surprisingly popular answer over blind numbers and class predictions (plan §17.2). */
+/**
+ * The surprisingly popular answer over the students' own numbers and class
+ * predictions (plan §17.2). `SpInput.ownPct` is the number a student leans
+ * by, which is their first number when consider-the-opposite is on (see
+ * `ownPct`), not the blend the engine prices.
+ */
 function surprisinglyPopularOf(submissions: readonly SubmissionState[]): SpResult {
   return surprisinglyPopular(
-    submissions.map((s) => ({ blindPct: s.blindPct, predictedTruePct: s.predictedTruePct ?? null })),
+    submissions.map((s) => ({ ownPct: ownPct(s), predictedTruePct: s.predictedTruePct ?? null })),
   )
 }
 
@@ -220,7 +239,7 @@ export function computeResolution(input: ResolutionInput): ResolutionResult {
       calibrationFinal: scoreable ? calibrationOrNull(finalPct, outcome) : null,
       calibrationBlind: scoreable ? calibrationOrNull(s.blindPct, outcome) : null,
       persuasion: null,
-      spInsight: spInsight(s.blindPct, s.predictedTruePct ?? null, spReference),
+      spInsight: spInsight(ownPct(s), s.predictedTruePct ?? null, spReference),
       contrarianBonus:
         scoreable && outcome !== null && finalPct !== null ? contrarianBonus(s.blindPct, blindPrice, outcome) : null,
     })

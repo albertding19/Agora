@@ -4,12 +4,14 @@
  *
  * Visibility rule: the payload carries prices, phases and timestamps, plus
  * one anonymous `note` per trade — the mover's cluster label when they were
- * clustered, else their reasoning text verbatim, else null. It never
- * carries a participant id, a display name, the mover's own number, or the
- * size of their move, and anchor points have no note. Nothing in here may
- * be forwarded to a phone or the projector.
+ * clustered under a real label ("Other" and the "Argument N" stand-in say
+ * nothing about why the price moved), else their reasoning text verbatim,
+ * else null. It never carries a participant id, a display name, the mover's
+ * own number, or the size of their move, and anchor points have no note.
+ * Nothing in here may be forwarded to a phone or the projector.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isPlaceholderLabel } from '@/lib/agents/clusterer'
 import { listClusters, listSubmissions, listTrades } from '@/lib/db/queries'
 import type { QuestionRow } from '@/lib/db/types'
 import { priceHistoryPoints, type HistoryTrade } from '@/lib/scoring/priceHistory'
@@ -27,13 +29,14 @@ export async function buildQuestionHistory(
     listClusters(client, question.id),
   ])
 
-  // Per mover: cluster label, else trimmed reasoning, else null. Resolved
-  // here and attached to the trade so the pure history builder never sees
-  // a participant id.
+  // Per mover: cluster label (a placeholder counts as none), else trimmed
+  // reasoning, else null. Resolved here and attached to the trade so the
+  // pure history builder never sees a participant id.
   const labelByIdx = new Map(clusters.map((c) => [c.idx, c.label] as const))
   const noteByParticipant = new Map<string, string | null>()
   for (const s of submissions) {
-    const label = s.cluster_index === null ? null : (labelByIdx.get(s.cluster_index) ?? null)
+    const raw = s.cluster_index === null ? null : (labelByIdx.get(s.cluster_index) ?? null)
+    const label = raw !== null && !isPlaceholderLabel(raw) ? raw : null
     const reasoning = (s.reasoning ?? '').trim()
     noteByParticipant.set(s.participant_id, label ?? (reasoning || null))
   }
