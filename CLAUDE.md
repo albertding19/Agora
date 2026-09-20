@@ -121,7 +121,9 @@ Provider: Anthropic SDK, `claude-opus-5` for every agent to start; the proposer'
 |---|---|---|---|
 | Proposer (band from reasoning) | P0 | low | UNCLEAR, 40–60, "I couldn't read a clear lean. Set your own number." |
 | Clusterer (2–4 argument clusters) | P0 | medium | no clusters |
-| Generator (5 propositions per topic) | P1 | high | canned demo list |
+| Generator (topic → 5 propositions, or open-question clusters → 1–3) | P1 / §17.3 | high | canned demo list (topic) / label-derived candidates, answer unset (cluster) |
+| Socrates (one question per turn in a group, questions only) | §17.4 | medium | fixed Socratic list, one per slot |
+| Steelman (fidelity 0–100 step 5 + note) | §17.7 | low | fidelity null + neutral note |
 | Narrator (2 sentences, never names a student) | P1 | medium | "The class moved from X% to Y%." |
 | Term report (5 bullets from aggregates) | P2 | high | canned bullets |
 

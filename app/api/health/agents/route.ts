@@ -8,8 +8,11 @@
 import { NextResponse } from 'next/server'
 import { dbCache } from '@/lib/agents/cache'
 import { clusterReasons } from '@/lib/agents/clusterer'
+import { generateQuestions } from '@/lib/agents/generator'
 import { proposeBand } from '@/lib/agents/proposer'
 import type { AgentCache } from '@/lib/agents/run'
+import { askSocrates } from '@/lib/agents/socrates'
+import { gradeSteelman } from '@/lib/agents/steelman'
 import { db } from '@/lib/db/server'
 
 export const dynamic = 'force-dynamic'
@@ -27,7 +30,7 @@ export async function GET() {
   }
 
   const opts = { cache, bypassCache: true }
-  const [proposer, clusterer] = await Promise.all([
+  const [proposer, clusterer, generator, socrates, steelman] = await Promise.all([
     proposeBand({ proposition: WARM_PROPOSITION, reasoning: 'Obviously, 1.10 minus 1.00 is 0.10.' }, opts),
     clusterReasons(
       {
@@ -40,11 +43,40 @@ export async function GET() {
       },
       opts,
     ),
+    generateQuestions(
+      {
+        kind: 'cluster',
+        question: 'What causes the seasons?',
+        referenceAnswer: "The tilt of Earth's axis.",
+        clusters: [
+          { label: 'Earth is closer to the sun in summer', count: 12, samples: ['We are closer in summer so it is hotter.'] },
+          { label: 'Axial tilt', count: 7, samples: ['It is the tilt.'] },
+        ],
+      },
+      opts,
+    ),
+    askSocrates(
+      {
+        proposition: WARM_PROPOSITION,
+        speakers: [
+          { turn: 1, leanPct: 45, reasoning: 'Not sure.' },
+          { turn: 2, leanPct: 95, reasoning: 'Obviously 10 cents.' },
+        ],
+      },
+      opts,
+    ),
+    gradeSteelman(
+      { proposition: WARM_PROPOSITION, side: 'FALSE', text: 'If the ball were 10 cents the total would be 1.20.' },
+      opts,
+    ),
   ])
 
   const agents = [
     { name: 'proposer', fallback: proposer.fallback, latencyMs: proposer.latencyMs, model: proposer.model, reason: proposer.reason ?? null },
     { name: 'clusterer', fallback: clusterer.fallback, latencyMs: clusterer.latencyMs, model: clusterer.model, reason: clusterer.reason ?? null },
+    { name: 'generator', fallback: generator.fallback, latencyMs: generator.latencyMs, model: generator.model, reason: generator.reason ?? null },
+    { name: 'socrates', fallback: socrates.fallback, latencyMs: socrates.latencyMs, model: socrates.model, reason: socrates.reason ?? null },
+    { name: 'steelman', fallback: steelman.fallback, latencyMs: steelman.latencyMs, model: steelman.model, reason: steelman.reason ?? null },
   ]
 
   return NextResponse.json({ ok: true, cache: cacheError ? { error: cacheError } : { ok: true }, agents })

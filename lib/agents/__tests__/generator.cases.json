@@ -1,0 +1,280 @@
+[
+  {
+    "name": "topic: Newtonian mechanics",
+    "input": { "kind": "topic", "topic": "Newtonian mechanics" },
+    "expect": {
+      "minCandidates": 4,
+      "maxCandidates": 5,
+      "anyTextMatches": "[Ff]orce|[Vv]elocity|accelerat|[Mm]ass|[Ii]nertia|[Mm]otion|[Mm]omentum|[Ff]riction|[Gg]ravity",
+      "mixedAnswers": true
+    }
+  },
+  {
+    "name": "topic: fractions and decimals",
+    "input": { "kind": "topic", "topic": "Fractions and decimals" },
+    "expect": {
+      "minCandidates": 4,
+      "maxCandidates": 5,
+      "anyTextMatches": "[Ff]raction|[Dd]ecimal|[0-9]",
+      "mixedAnswers": true
+    }
+  },
+  {
+    "name": "topic: plate tectonics",
+    "input": { "kind": "topic", "topic": "Plate tectonics" },
+    "expect": {
+      "minCandidates": 4,
+      "maxCandidates": 5,
+      "anyTextMatches": "[Pp]late|[Cc]rust|[Mm]antle|[Cc]ontinent|[Ee]arthquake|[Vv]olcan",
+      "mixedAnswers": true
+    }
+  },
+  {
+    "name": "topic: photosynthesis",
+    "input": { "kind": "topic", "topic": "Photosynthesis" },
+    "expect": {
+      "minCandidates": 4,
+      "maxCandidates": 5,
+      "anyTextMatches": "[Pp]hotosynthe|[Cc]arbon dioxide|CO2|[Ss]unlight|[Cc]hlorophyll|[Gg]lucose|[Oo]xygen|[Pp]lant|[Ll]eaf|[Ll]eaves|[Ss]oil",
+      "mixedAnswers": true
+    }
+  },
+  {
+    "name": "topic: Hamlet",
+    "input": { "kind": "topic", "topic": "Shakespeare's Hamlet" },
+    "expect": {
+      "minCandidates": 4,
+      "maxCandidates": 5,
+      "anyTextMatches": "Hamlet|Claudius|Ophelia|Gertrude|Polonius|Horatio|Laertes|[Gg]host|Denmark|[Mm]adness|[Rr]evenge|Yorick",
+      "mixedAnswers": true
+    }
+  },
+  {
+    "name": "cluster: seasons, distance cluster is largest and wrong",
+    "input": {
+      "kind": "cluster",
+      "question": "What causes the seasons?",
+      "referenceAnswer": "The tilt of the Earth's axis changes how directly sunlight hits each hemisphere through the year.",
+      "clusters": [
+        {
+          "label": "The Earth is closer to the Sun in summer",
+          "count": 12,
+          "samples": [
+            "Because we are closer to the sun in summer and farther away in winter",
+            "The earth's orbit is an oval so sometimes we are nearer the sun",
+            "Distance from the sun, closer means hotter"
+          ]
+        },
+        {
+          "label": "The tilt of the Earth's axis",
+          "count": 7,
+          "samples": [
+            "The axis is tilted so the northern half leans toward the sun in June",
+            "Tilt of the earth, the sunlight hits more directly in summer",
+            "It's the 23 degree tilt, not the distance"
+          ]
+        },
+        {
+          "label": "Other",
+          "count": 2,
+          "samples": ["Something to do with the moon", "Not sure"]
+        }
+      ]
+    },
+    "expect": {
+      "minCandidates": 1,
+      "maxCandidates": 3,
+      "first": {
+        "sourceClusterIndex": 0,
+        "correctAnswer": false,
+        "textMatches": "distance|closer|orbit|near|farther"
+      }
+    }
+  },
+  {
+    "name": "cluster: falling objects, heavier-falls-faster cluster first",
+    "input": {
+      "kind": "cluster",
+      "question": "Drop a bowling ball and a tennis ball from the same height at the same moment. Which one lands first, and why?",
+      "referenceAnswer": "Ignoring air resistance they land together: gravity accelerates every object at the same rate regardless of its mass.",
+      "clusters": [
+        {
+          "label": "Heavier objects fall faster",
+          "count": 9,
+          "samples": [
+            "The bowling ball, it is heavier so gravity pulls it harder",
+            "Bowling ball first because it weighs more",
+            "Heavier things fall faster, that is just how it works"
+          ]
+        },
+        {
+          "label": "Both land at the same time",
+          "count": 6,
+          "samples": [
+            "Same time, Galileo showed it",
+            "They hit together, gravity is the same for everything",
+            "Both at once if there is no air"
+          ]
+        },
+        {
+          "label": "Air resistance slows the lighter ball",
+          "count": 3,
+          "samples": [
+            "The tennis ball is slowed more by the air so the bowling ball wins by a tiny bit",
+            "Air pushes back on the tennis ball more",
+            "Drag matters more for the light one"
+          ]
+        },
+        {
+          "label": "Other",
+          "count": 1,
+          "samples": ["depends on the height"]
+        }
+      ]
+    },
+    "expect": {
+      "minCandidates": 1,
+      "maxCandidates": 3,
+      "first": {
+        "sourceClusterIndex": 0,
+        "correctAnswer": false,
+        "textMatches": "[Hh]eav|[Mm]ass|[Ww]eigh|faster"
+      }
+    }
+  },
+  {
+    "name": "cluster: bat and ball, ten-cents cluster first",
+    "input": {
+      "kind": "cluster",
+      "question": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?",
+      "referenceAnswer": "5 cents: if the ball is 5 cents the bat is $1.05 and together they cost $1.10.",
+      "clusters": [
+        {
+          "label": "The ball costs 10 cents",
+          "count": 14,
+          "samples": [
+            "10 cents, 1.10 minus 1.00",
+            "Ten cents",
+            "The bat is a dollar so the ball is the leftover ten cents"
+          ]
+        },
+        {
+          "label": "The ball costs 5 cents",
+          "count": 5,
+          "samples": [
+            "5 cents, because then the bat is 1.05 and it adds up",
+            "Let b be the ball: b + (b + 1) = 1.10, so b = 0.05",
+            "Five cents, I checked by adding them back up"
+          ]
+        },
+        {
+          "label": "Other",
+          "count": 1,
+          "samples": ["no idea"]
+        }
+      ]
+    },
+    "expect": {
+      "minCandidates": 1,
+      "maxCandidates": 3,
+      "first": {
+        "sourceClusterIndex": 0,
+        "correctAnswer": false,
+        "textMatches": "10 cents|[Tt]en cents|0\\.10|10¢"
+      }
+    }
+  },
+  {
+    "name": "cluster: tree mass, two wrong clusters",
+    "input": {
+      "kind": "cluster",
+      "question": "A tiny seed grows into a tree whose wood weighs several tonnes. Where does most of that dry mass come from?",
+      "referenceAnswer": "Mostly from carbon dioxide in the air: photosynthesis fixes the carbon into sugars that build the wood.",
+      "clusters": [
+        {
+          "label": "From the soil through the roots",
+          "count": 10,
+          "samples": [
+            "From the soil, the roots suck up nutrients and that becomes the tree",
+            "Soil and minerals from the ground",
+            "Dirt, that's why the ground sinks around old trees"
+          ]
+        },
+        {
+          "label": "From water pulled up by the roots",
+          "count": 6,
+          "samples": [
+            "Water, trees drink a lot and it turns into wood",
+            "Mostly water pulled up from the roots",
+            "Rain water"
+          ]
+        },
+        {
+          "label": "From carbon dioxide in the air",
+          "count": 4,
+          "samples": [
+            "From CO2 in the air, photosynthesis",
+            "The carbon comes from the air",
+            "Air, the carbon dioxide gets turned into sugar"
+          ]
+        },
+        {
+          "label": "Other",
+          "count": 2,
+          "samples": ["sunlight", "not sure"]
+        }
+      ]
+    },
+    "expect": {
+      "minCandidates": 2,
+      "maxCandidates": 3,
+      "first": {
+        "sourceClusterIndex": 0,
+        "correctAnswer": false,
+        "textMatches": "[Ss]oil|[Rr]oot|[Gg]round|[Nn]utrient|[Mm]ineral|[Dd]irt"
+      }
+    }
+  },
+  {
+    "name": "cluster: day and night, no reference, largest cluster is right",
+    "input": {
+      "kind": "cluster",
+      "question": "Why do we have day and night?",
+      "referenceAnswer": null,
+      "clusters": [
+        {
+          "label": "The Earth spins on its axis",
+          "count": 15,
+          "samples": [
+            "The earth rotates once a day so we face the sun and then face away",
+            "Earth spinning",
+            "Rotation of the earth on its axis"
+          ]
+        },
+        {
+          "label": "The Sun moves around the Earth",
+          "count": 4,
+          "samples": [
+            "The sun goes around the earth once a day",
+            "The sun travels across the sky and then under the earth",
+            "The sun circles us"
+          ]
+        },
+        {
+          "label": "Other",
+          "count": 1,
+          "samples": ["The moon blocks the sun at night"]
+        }
+      ]
+    },
+    "expect": {
+      "minCandidates": 1,
+      "maxCandidates": 3,
+      "first": {
+        "sourceClusterIndex": 1,
+        "correctAnswer": false,
+        "textMatches": "[Ss]un.*(moves|travels|goes|circles|orbits|revolves|around|beneath|under|across)|around the [Ee]arth"
+      }
+    }
+  }
+]

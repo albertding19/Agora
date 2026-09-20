@@ -43,4 +43,5 @@ Scaffold, generated at hour 0. See the bottom of `ARCHITECTURE.md` and the notes
 - Implemented and unit-tested: `lib/market`, `lib/scoring`, `lib/pairing`, `lib/phases/machine.ts`, `lib/agents` (normalization).
 - Implemented, type-checked, **not yet run against a live Supabase project**: the route handlers, `lib/phases/advance.ts`, `lib/views`, the pages, `lib/realtime`, `scripts/simulate.ts`.
 - Stubs returning 501: `POST /api/sessions/:id/generate`, `GET /api/questions/:id/narrate`, `scripts/seed-demo.ts`.
+- §17 agents built, unit-tested, and registered in `npm run agent:eval` and `GET /api/health/agents`: `lib/agents/generator.ts`, `lib/agents/socrates.ts`, `lib/agents/steelman.ts`. `generate` stops being a 501 once the §17.3 route lands (it is still a stub today).
 - First thing to do with credentials: apply the migration, `npm run dev`, then `npm run simulate` and fix what breaks.

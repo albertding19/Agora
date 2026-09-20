@@ -1,0 +1,92 @@
+[
+  {
+    "name": "bat and ball, faithful case for FALSE",
+    "input": {
+      "proposition": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. So the ball costs 10 cents.",
+      "side": "FALSE",
+      "text": "If the ball were 10 cents the bat would be $1.10 and the pair would come to $1.20, so the ball has to be 5 cents and the bat $1.05."
+    },
+    "expect": { "min": 80, "max": 100 }
+  },
+  {
+    "name": "bat and ball, dismissive of the assigned side",
+    "input": {
+      "proposition": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. So the ball costs 10 cents.",
+      "side": "FALSE",
+      "text": "People who say it is not 10 cents are just overthinking a one-line subtraction to look clever."
+    },
+    "expect": { "min": 0, "max": 30 }
+  },
+  {
+    "name": "0.999..., algebra case for TRUE",
+    "input": {
+      "proposition": "0.999... (repeating forever) is equal to 1.",
+      "side": "TRUE",
+      "text": "Let x = 0.999..., then 10x = 9.999..., subtract the first from the second and 9x = 9, so x = 1 exactly."
+    },
+    "expect": { "min": 85, "max": 100 }
+  },
+  {
+    "name": "0.999..., charitable infinitesimal case for FALSE",
+    "input": {
+      "proposition": "0.999... (repeating forever) is equal to 1.",
+      "side": "FALSE",
+      "text": "In a number system that allows infinitesimals, 0.999... can sit an infinitely small amount below 1, so the equality depends on which number system you adopt."
+    },
+    "expect": { "min": 60, "max": 95 }
+  },
+  {
+    "name": "falling objects, classic case for TRUE",
+    "input": {
+      "proposition": "Heavier objects fall faster than lighter ones when there is no air.",
+      "side": "TRUE",
+      "text": "Gravity pulls harder on a heavier object, so with nothing to resist it there is more force driving it down, and more force should get it to the ground sooner."
+    },
+    "expect": { "min": 65, "max": 95 }
+  },
+  {
+    "name": "falling objects, no argument at all",
+    "input": {
+      "proposition": "Heavier objects fall faster than lighter ones when there is no air.",
+      "side": "TRUE",
+      "text": "idk they just do"
+    },
+    "expect": { "min": 0, "max": 30 }
+  },
+  {
+    "name": "Hamlet, case for TRUE with textual evidence",
+    "input": {
+      "proposition": "Hamlet's madness is entirely feigned.",
+      "side": "TRUE",
+      "text": "He tells Horatio he will put on an antic disposition, and he drops the act whenever he is alone with Horatio or the players, which reads as a plan rather than a breakdown."
+    },
+    "expect": { "min": 75, "max": 100 }
+  },
+  {
+    "name": "Hamlet, argues the other side instead",
+    "input": {
+      "proposition": "Hamlet's madness is entirely feigned.",
+      "side": "TRUE",
+      "text": "By act four he is genuinely unstable: he kills Polonius on impulse and turns cruel to Ophelia, so it cannot all be an act."
+    },
+    "expect": { "min": 0, "max": 30 }
+  },
+  {
+    "name": "Great Wall, plausible case for TRUE",
+    "input": {
+      "proposition": "The Great Wall of China is visible from space with the naked eye.",
+      "side": "TRUE",
+      "text": "The wall runs for thousands of kilometres, and from a low orbit a long, continuous line that contrasts with the terrain can be picked out the way rivers and highways sometimes are."
+    },
+    "expect": { "min": 60, "max": 95 }
+  },
+  {
+    "name": "Great Wall, EITHER, picks the distance side",
+    "input": {
+      "proposition": "The Great Wall of China is visible from space with the naked eye.",
+      "side": "EITHER",
+      "text": "The wall is only a few metres wide, about the width of a road, so from 400 km up it blends into the hills and no astronaut has reliably picked it out unaided."
+    },
+    "expect": { "min": 60, "max": 95 }
+  }
+]

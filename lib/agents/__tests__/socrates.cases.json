@@ -1,0 +1,147 @@
+[
+  {
+    "name": "bat and ball, confident last speaker",
+    "input": {
+      "proposition": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. So the ball costs 10 cents.",
+      "speakers": [
+        { "turn": 1, "leanPct": 40, "reasoning": "Not sure, it feels like a trick question." },
+        { "turn": 2, "leanPct": 65, "reasoning": "The bat is a dollar so the ball is whatever is left." },
+        { "turn": 3, "leanPct": 95, "reasoning": "Obviously 10 cents, 1.10 minus 1.00." }
+      ]
+    },
+    "expect": {
+      "targets": [{ "index": 2, "regex": "[Oo]bviously|10 cents|ten cents|1\\.10|1\\.00|minus" }],
+      "noAnswerLeak": "\\b5 cents|\\bfive cents|\\b0\\.05|\\b1\\.05"
+    }
+  },
+  {
+    "name": "no reasoning at all",
+    "input": {
+      "proposition": "Heavier objects fall faster than lighter ones when there is no air.",
+      "speakers": [
+        { "turn": 1, "leanPct": 30, "reasoning": null },
+        { "turn": 2, "leanPct": 60, "reasoning": null },
+        { "turn": 3, "leanPct": 85, "reasoning": null }
+      ]
+    },
+    "expect": {
+      "targets": [{ "index": 2, "regex": "air|fall|gravit|mass|weigh|heav|light|speed|drop|vacuum|pull" }]
+    }
+  },
+  {
+    "name": "Hamlet, confident doubter",
+    "input": {
+      "proposition": "Hamlet delays killing Claudius because he is genuinely uncertain whether the Ghost is telling the truth.",
+      "speakers": [
+        { "turn": 1, "leanPct": 45, "reasoning": "He seems to believe the ghost straight away, so I don't think doubt is the reason." },
+        { "turn": 2, "leanPct": 70, "reasoning": "He stages the play to test the ghost's story, and that is doubt." },
+        { "turn": 3, "leanPct": 20, "reasoning": "It's about his conscience and overthinking, not the ghost." }
+      ]
+    },
+    "expect": {
+      "targets": [{ "index": 2, "regex": "conscience|overthink" }]
+    }
+  },
+  {
+    "name": "0.999 group of four with a confident proof",
+    "input": {
+      "proposition": "0.999... (repeating forever) is equal to 1.",
+      "speakers": [
+        { "turn": 1, "leanPct": 35, "reasoning": "There is always a tiny gap left over." },
+        { "turn": 2, "leanPct": 55, "reasoning": "Maybe, my teacher said so once." },
+        { "turn": 3, "leanPct": 75, "reasoning": "1/3 is 0.333..., times 3 is 0.999..., and 3 times 1/3 is 1." },
+        { "turn": 4, "leanPct": 100, "reasoning": "Let x = 0.999..., then 10x = 9.999..., subtract and 9x = 9, so x = 1. Proof." }
+      ]
+    },
+    "expect": {
+      "targets": [{ "index": 3, "regex": "10x|9x|subtract|x = |[Pp]roof|multipl" }]
+    }
+  },
+  {
+    "name": "falling objects, gravity pulls harder",
+    "input": {
+      "proposition": "Heavier objects fall faster than lighter ones when there is no air.",
+      "speakers": [
+        { "turn": 1, "leanPct": 50, "reasoning": "I've seen a feather and a stone fall differently but that might be the air." },
+        { "turn": 2, "leanPct": 30, "reasoning": "I remember a video from the moon where a hammer and a feather landed at the same moment." },
+        { "turn": 3, "leanPct": 90, "reasoning": "Heavier means gravity pulls harder, so it has to speed up more." }
+      ]
+    },
+    "expect": {
+      "targets": [{ "index": 2, "regex": "pulls harder|gravity|speed up|[Hh]eavier" }]
+    }
+  },
+  {
+    "name": "seasons group of five",
+    "input": {
+      "proposition": "The seasons happen because Earth is closer to the Sun in summer and farther away in winter.",
+      "speakers": [
+        { "turn": 1, "leanPct": 50, "reasoning": null },
+        { "turn": 2, "leanPct": 60, "reasoning": "It gets hotter when you are closer to a fire, same idea." },
+        { "turn": 3, "leanPct": 40, "reasoning": "If that were true the whole planet would have summer at once." },
+        { "turn": 4, "leanPct": 70, "reasoning": "The orbit is an ellipse, so the distance must change." },
+        { "turn": 5, "leanPct": 85, "reasoning": "Obviously closer means hotter, that's just how heat works." }
+      ]
+    },
+    "expect": {
+      "targets": [{ "index": 4, "regex": "closer means hotter|closer|hotter|heat works|how heat" }],
+      "noAnswerLeak": "tilt|axis|axial"
+    }
+  },
+  {
+    "name": "non-submitter last, speaker 2 is most confident",
+    "input": {
+      "proposition": "The Great Wall of China is visible to the naked eye from low Earth orbit.",
+      "speakers": [
+        { "turn": 1, "leanPct": 55, "reasoning": "Maybe, I'm not sure how far away that is." },
+        { "turn": 2, "leanPct": 15, "reasoning": "The wall is only a few metres wide, you couldn't pick it out from that far up." },
+        { "turn": 3, "leanPct": null, "reasoning": null }
+      ]
+    },
+    "expect": {
+      "targets": [{ "index": 1, "regex": "metres|meters|wide|few|that far|pick it out" }]
+    }
+  },
+  {
+    "name": "bare numbers as reasoning",
+    "input": {
+      "proposition": "A tree's mass comes mostly from the soil it grows in.",
+      "speakers": [
+        { "turn": 1, "leanPct": 40, "reasoning": "40%" },
+        { "turn": 2, "leanPct": 70, "reasoning": "70" },
+        { "turn": 3, "leanPct": 85, "reasoning": "85% sure" }
+      ]
+    },
+    "expect": {
+      "targets": [{ "index": 2, "regex": "soil|mass|tree|air|carbon|water|grow|weigh|come from|where" }]
+    }
+  },
+  {
+    "name": "confidence tie, later turn wins",
+    "input": {
+      "proposition": "People lose most of their body heat through their heads.",
+      "speakers": [
+        { "turn": 1, "leanPct": 50, "reasoning": "Could go either way." },
+        { "turn": 2, "leanPct": 20, "reasoning": "It's just a story people repeat, nobody checks it." },
+        { "turn": 3, "leanPct": 80, "reasoning": "Everyone knows this, it's in every textbook." }
+      ]
+    },
+    "expect": {
+      "targets": [{ "index": 2, "regex": "[Ee]veryone knows|textbook" }]
+    }
+  },
+  {
+    "name": "Roman economy, humanities",
+    "input": {
+      "proposition": "The Roman Empire fell mainly because of economic collapse rather than military defeat.",
+      "speakers": [
+        { "turn": 1, "leanPct": 55, "reasoning": "Both mattered, it's hard to separate them." },
+        { "turn": 2, "leanPct": 30, "reasoning": "The invasions were the actual end, the economy was just background." },
+        { "turn": 3, "leanPct": 80, "reasoning": "They debased the coinage and inflation wrecked everything long before the Goths showed up." }
+      ]
+    },
+    "expect": {
+      "targets": [{ "index": 2, "regex": "coinage|debased|inflation|wrecked|Goths" }]
+    }
+  }
+]
