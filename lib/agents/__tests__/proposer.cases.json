@@ -1,0 +1,82 @@
+[
+  {
+    "name": "confident TRUE (0.999... = 1)",
+    "input": {
+      "proposition": "0.999... (repeating forever) is equal to 1.",
+      "reasoning": "Yes, definitely. 1/3 = 0.333..., so 3 times that is 0.999..., and 3 times 1/3 is 1."
+    },
+    "expect": { "stance": "TRUE", "minLo": 70 }
+  },
+  {
+    "name": "hedged FALSE (feather and hammer)",
+    "input": {
+      "proposition": "Heavier objects fall faster than lighter ones when there is no air.",
+      "reasoning": "I don't think so, I vaguely remember a feather and a hammer landing together on the moon, but I'm not sure."
+    },
+    "expect": { "stance": "FALSE", "maxHi": 50 }
+  },
+  {
+    "name": "ambiguous, takes no side",
+    "input": {
+      "proposition": "Heavier objects fall faster than lighter ones when there is no air.",
+      "reasoning": "It depends what you mean by faster, and whether we count the start."
+    },
+    "expect": { "stance": ["UNCLEAR", "TRUE", "FALSE"], "minLo": 25, "maxHi": 75 }
+  },
+  {
+    "name": "empty-ish text",
+    "input": {
+      "proposition": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. So the ball costs 10 cents.",
+      "reasoning": "idk"
+    },
+    "expect": { "stance": "UNCLEAR", "bandContains": 50 }
+  },
+  {
+    "name": "confident misconception (bat and ball)",
+    "input": {
+      "proposition": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. So the ball costs 10 cents.",
+      "reasoning": "Obviously. 1.10 minus 1.00 is 0.10, so the ball is 10 cents."
+    },
+    "expect": { "stance": "TRUE", "minLo": 70 }
+  },
+  {
+    "name": "hedged FALSE (0.999... never reaches 1)",
+    "input": {
+      "proposition": "0.999... (repeating forever) is equal to 1.",
+      "reasoning": "It's less than 1, it never actually gets there, though I know some people say it does."
+    },
+    "expect": { "stance": "FALSE", "maxHi": 50 }
+  },
+  {
+    "name": "sarcastic FALSE",
+    "input": {
+      "proposition": "The Great Wall of China is visible from space with the naked eye.",
+      "reasoning": "Sure, and so is my house. No way."
+    },
+    "expect": { "stance": "FALSE", "maxHi": 40 }
+  },
+  {
+    "name": "very long, lands on TRUE with moderate confidence",
+    "input": {
+      "proposition": "Heavier objects fall faster than lighter ones when there is no air.",
+      "reasoning": "So gravity pulls harder on heavier things, that's why they weigh more, and even though I remember something about Galileo dropping stuff I still feel like the heavier one should get there first, at least a little, probably."
+    },
+    "expect": { "stance": "TRUE", "bandContains": 60 }
+  },
+  {
+    "name": "numeric-only answer",
+    "input": {
+      "proposition": "0.999... (repeating forever) is equal to 1.",
+      "reasoning": "80%"
+    },
+    "expect": { "stance": "TRUE", "bandContains": 80 }
+  },
+  {
+    "name": "humanities, split reasoning",
+    "input": {
+      "proposition": "Hamlet's madness is entirely feigned.",
+      "reasoning": "He tells Horatio he will put on an antic disposition, so it starts as a plan, but by act 4 he seems genuinely unstable."
+    },
+    "expect": { "stance": ["UNCLEAR", "TRUE", "FALSE"], "minLo": 20, "maxHi": 80 }
+  }
+]
